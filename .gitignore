@@ -1,0 +1,11 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+Config/Local.xcconfig
+*.ipa
+*.xcarchive
+!archive/polling-rate-test-build8-2026-10-02/artifacts/*.ipa

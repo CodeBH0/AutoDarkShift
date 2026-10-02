@@ -1,0 +1,24 @@
+{"event":"export_metadata","fields":{"appError":"none","appGroupIdentifier":"group.com.example.AutoDarkShift","appVersion":"1.0.0","buildVersion":"4","debuggerDetached":"must be recorded by tester","deviceModel":"iPhone","disconnectError":"PacketTunnel.ProjectError (0): 未能完成操作。（PacketTunnel.ProjectError错误0。）; info=[:]","keepAlive":"VPN","keepAliveStatus":"已断开","protocolVersion":"2","runtimeConfirmed":"false","runtimeError":"none","storageError":"AutoDarkShift.ProjectError (0): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[:]","storageMode":"app-group-v1","systemVersion":"27.0"},"instanceID":"app","timestamp":"2026-10-02T10:26:42.528Z"}
+{"event":"export_metadata","fields":{"scope":"app_diagnostics"},"instanceID":"app","timestamp":"2026-10-02T10:26:42.529Z"}
+{"event":"app_launch","fields":{"identity":"RuntimeIdentity(protocolVersion: 2, storageMode: \"app-group-v1\", bundleIdentifier: \"com.example.AutoDarkShift\", buildVersion: \"4\", appGroupIdentifier: \"group.com.example.AutoDarkShift\")","storageError":"AutoDarkShift.ProjectError (0): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[:]","storageMode":"app-group-v1"},"instanceID":"app","timestamp":"2026-10-02T10:25:45.875Z"}
+{"event":"vpn_status","fields":{"phase":"unavailable","status":"未安装或配置无效"},"instanceID":"app","timestamp":"2026-10-02T10:25:45.975Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift.ProjectError (0): 请先准备 VPN。; info=[:]"},"instanceID":"app","timestamp":"2026-10-02T10:25:49.983Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift.ProjectError (0): 请先准备 VPN。; info=[:]"},"instanceID":"app","timestamp":"2026-10-02T10:25:50.760Z"}
+{"event":"vpn_preferences_save_requested","fields":{"appGroupIdentifier":"group.com.example.AutoDarkShift","protocolVersion":"2","storageMode":"app-group-v1"},"instanceID":"app","timestamp":"2026-10-02T10:26:27.386Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:31.825Z"}
+{"event":"vpn_installed","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel"},"instanceID":"app","timestamp":"2026-10-02T10:26:31.826Z"}
+{"event":"vpn_start_requested","fields":{"storageMode":"app-group-v1"},"instanceID":"app","timestamp":"2026-10-02T10:26:33.388Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T10:26:33.395Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:33.507Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:33.521Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:33.524Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.675Z"}
+{"event":"vpn_start_requested","fields":{"storageMode":"app-group-v1"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.677Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.682Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.692Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.742Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.760Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T10:26:34.764Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.1B554A4C-D865-4E08-A39F-70F779E75F41"},"instanceID":"app","timestamp":"2026-10-02T10:26:39.489Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T10:26:42.524Z"}
+{"event":"shared_logs_unavailable","fields":{"error":"AutoDarkShift.ProjectError (0): AutoDarkShift.ProjectError (0): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[:]; info=[:]"},"instanceID":"app","timestamp":"2026-10-02T10:26:42.531Z"}
