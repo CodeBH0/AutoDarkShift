@@ -1,5 +1,0 @@
-// Copy to Local.xcconfig and fill in your own registered identifiers.
-DEVELOPMENT_TEAM = YOUR_TEAM_ID
-APP_BUNDLE_ID = com.yourcompany.AutoDarkShift
-TUNNEL_BUNDLE_ID = $(APP_BUNDLE_ID).PacketTunnel
-APP_GROUP_ID = group.com.yourcompany.AutoDarkShift
