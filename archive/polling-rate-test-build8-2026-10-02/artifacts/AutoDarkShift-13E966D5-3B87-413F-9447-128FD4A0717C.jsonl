@@ -1,0 +1,193 @@
+{"event":"export_metadata","fields":{"appError":"none","appGroupIdentifier":"group.com.example.AutoDarkShift","appVersion":"1.0.0","buildVersion":"7","consecutiveReadbackUnavailable":"0","debuggerDetached":"must be recorded by tester","deviceModel":"iPhone","disconnectError":"none","keepAlive":"VPN","keepAliveStatus":"已断开","protocolVersion":"3","readbackAvailability":"notChecked","readbackDetail":"none","runtimeConfirmed":"false","runtimeError":"none","storageError":"none","storageFallbackReason":"AutoDarkShift (1): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[\"NSLocalizedDescription\": \"App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。\"]","storageMode":"local-ipc-v1","systemVersion":"27.0"},"instanceID":"app","timestamp":"2026-10-02T13:45:32.426Z"}
+{"event":"export_metadata","fields":{"scope":"app_diagnostics"},"instanceID":"app","timestamp":"2026-10-02T13:45:32.426Z"}
+{"event":"app_launch","fields":{"identity":"RuntimeIdentity(protocolVersion: 3, storageMode: \"local-ipc-v1\", bundleIdentifier: \"com.example.AutoDarkShift\", buildVersion: \"6\", appGroupIdentifier: \"group.com.example.AutoDarkShift\")","storageError":"none","storageFallbackReason":"AutoDarkShift (1): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[\"NSLocalizedDescription\": \"App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。\"]","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T12:22:35.269Z"}
+{"event":"vpn_status","fields":{"phase":"unavailable","status":"未安装或配置无效"},"instanceID":"app","timestamp":"2026-10-02T12:22:35.422Z"}
+{"event":"vpn_preferences_save_requested","fields":{"appGroupIdentifier":"group.com.example.AutoDarkShift","protocolVersion":"3","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T12:22:37.534Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T12:22:41.966Z"}
+{"event":"vpn_installed","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel"},"instanceID":"app","timestamp":"2026-10-02T12:22:41.968Z"}
+{"event":"vpn_start_requested","fields":{"revision":"defaults-v1","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T12:22:41.968Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T12:22:41.996Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T12:22:42.171Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:22:42.172Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:22:42.377Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:22:42.379Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T12:23:09.084Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:09.294Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"49042878-B244-4600-B91E-9C5B84A7FE21"},"instanceID":"app","timestamp":"2026-10-02T12:23:09.301Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T12:23:21.906Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T12:23:21.914Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T12:23:21.962Z"}
+{"event":"vpn_start_requested","fields":{"revision":"49042878-B244-4600-B91E-9C5B84A7FE21","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T12:23:22.873Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T12:23:22.880Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T12:23:22.985Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:23:22.986Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:23.202Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:23.205Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.598BFEAA-0EA8-47FF-BE50-100D159E0C89"},"instanceID":"app","timestamp":"2026-10-02T12:23:31.388Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:23:36.694Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:36.915Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:23:42.279Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:42.489Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:23:53.549Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:23:53.775Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T12:24:05.560Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:24:05.781Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"BFFAB7D2-8F41-41BA-A089-CED6DF6472F2"},"instanceID":"app","timestamp":"2026-10-02T12:24:05.789Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T12:24:08.364Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T12:24:08.379Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T12:24:08.422Z"}
+{"event":"vpn_start_requested","fields":{"revision":"BFFAB7D2-8F41-41BA-A089-CED6DF6472F2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.308Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.321Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.417Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.418Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.629Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:24:09.634Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:24:40.316Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:24:40.528Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:25:44.851Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:25:45.073Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T12:26:07.802Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T12:26:08.015Z"}
+{"event":"app_launch","fields":{"identity":"RuntimeIdentity(protocolVersion: 3, storageMode: \"local-ipc-v1\", bundleIdentifier: \"com.example.AutoDarkShift\", buildVersion: \"6\", appGroupIdentifier: \"group.com.example.AutoDarkShift\")","storageError":"none","storageFallbackReason":"AutoDarkShift (1): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[\"NSLocalizedDescription\": \"App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。\"]","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:25:16.943Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:25:17.041Z"}
+{"event":"app_launch","fields":{"identity":"RuntimeIdentity(protocolVersion: 3, storageMode: \"local-ipc-v1\", bundleIdentifier: \"com.example.AutoDarkShift\", buildVersion: \"7\", appGroupIdentifier: \"group.com.example.AutoDarkShift\")","storageError":"none","storageFallbackReason":"AutoDarkShift (1): App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。; info=[\"NSLocalizedDescription\": \"App Group 容器不可用。请检查两个 Target 的签名与 App Group entitlement。\"]","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:26:10.938Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:26:11.028Z"}
+{"event":"vpn_profile_repaired","fields":{"metadataUpdated":"false","wasEnabled":"false"},"instanceID":"app","timestamp":"2026-10-02T13:26:12.793Z"}
+{"event":"vpn_start_requested","fields":{"revision":"BFFAB7D2-8F41-41BA-A089-CED6DF6472F2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:26:12.804Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:26:12.812Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:26:12.824Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:26:12.826Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.036Z"}
+{"event":"vpn_start_requested","fields":{"revision":"BFFAB7D2-8F41-41BA-A089-CED6DF6472F2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.038Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.042Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.049Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.158Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.159Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.363Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:26:15.367Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:26:46.030Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:26:46.258Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:26:47.598Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:26:47.814Z"}
+{"event":"provider_message_sent","fields":{"command":"startPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:26:56.812Z"}
+{"event":"provider_message_unavailable","fields":{"command":"startPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:26:57.032Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:28:25.563Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:28:25.783Z"}
+{"event":"provider_message_sent","fields":{"command":"startPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:28:37.660Z"}
+{"event":"provider_message_unavailable","fields":{"command":"startPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:28:37.877Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:30:42.142Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:30:42.365Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:30:44.209Z"}
+{"event":"provider_message_sent","fields":{"command":"exportDiagnostics"},"instanceID":"app","timestamp":"2026-10-02T13:30:44.217Z"}
+{"event":"provider_message_unavailable","fields":{"command":"exportDiagnostics","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:30:44.425Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:32:48.886Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:32:48.898Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:32:48.948Z"}
+{"event":"vpn_profile_repaired","fields":{"metadataUpdated":"false","wasEnabled":"false"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.117Z"}
+{"event":"vpn_start_requested","fields":{"revision":"BFFAB7D2-8F41-41BA-A089-CED6DF6472F2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.129Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.140Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.237Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.238Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.454Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:37:17.460Z"}
+{"event":"provider_message_sent","fields":{"command":"startPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:37:24.167Z"}
+{"event":"provider_message_unavailable","fields":{"command":"startPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:37:24.386Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:37:29.221Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:37:29.444Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"6D19C796-1245-4AC0-939E-4AB0F4B9C9A8"},"instanceID":"app","timestamp":"2026-10-02T13:37:29.451Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:37:50.036Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:37:50.248Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"6B99B207-5D8A-4C42-BAD7-1EBC5B1D46F7"},"instanceID":"app","timestamp":"2026-10-02T13:37:50.252Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:38:07.338Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:38:07.555Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"B2A038C8-78CC-4D62-BC45-6DD2F48A7C51"},"instanceID":"app","timestamp":"2026-10-02T13:38:07.560Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:38:24.156Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:38:24.369Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"04D5AA23-4E55-41DC-8159-4A3A601D267E"},"instanceID":"app","timestamp":"2026-10-02T13:38:24.376Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:38:42.719Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:38:42.934Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"1F17057A-406C-4324-B373-29B77C395172"},"instanceID":"app","timestamp":"2026-10-02T13:38:42.939Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:39:00.609Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:39:00.831Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"27A06680-D986-4682-8DAF-06A3265309C2"},"instanceID":"app","timestamp":"2026-10-02T13:39:00.839Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:39:23.371Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:39:23.582Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:39:40.575Z"}
+{"event":"provider_message_sent","fields":{"command":"exportDiagnostics"},"instanceID":"app","timestamp":"2026-10-02T13:39:40.583Z"}
+{"event":"provider_message_unavailable","fields":{"command":"exportDiagnostics","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:39:40.801Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:39:45.089Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:39:45.300Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:39:46.204Z"}
+{"event":"provider_message_sent","fields":{"command":"exportDiagnostics"},"instanceID":"app","timestamp":"2026-10-02T13:39:46.211Z"}
+{"event":"provider_message_unavailable","fields":{"command":"exportDiagnostics","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:39:46.429Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:40:29.757Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:40:29.772Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:40:29.836Z"}
+{"event":"vpn_profile_repaired","fields":{"metadataUpdated":"false","wasEnabled":"false"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.661Z"}
+{"event":"vpn_start_requested","fields":{"revision":"27A06680-D986-4682-8DAF-06A3265309C2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.672Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.682Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.781Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.782Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:41:30.999Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:41:31.004Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:41:56.668Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:41:56.879Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:42:57.002Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:42:57.213Z"}
+{"event":"provider_message_sent","fields":{"command":"reloadConfiguration"},"instanceID":"app","timestamp":"2026-10-02T13:43:11.562Z"}
+{"event":"provider_message_unavailable","fields":{"command":"reloadConfiguration","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:11.770Z"}
+{"event":"configuration_confirmation_pending","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]","revision":"3211C897-3A4B-4B6E-8BA9-DCEAF2739D2B"},"instanceID":"app","timestamp":"2026-10-02T13:43:11.776Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:43:16.309Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:16.318Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:16.362Z"}
+{"event":"vpn_start_requested","fields":{"revision":"3211C897-3A4B-4B6E-8BA9-DCEAF2739D2B","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.220Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.232Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.327Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.328Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.532Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:17.537Z"}
+{"event":"provider_message_sent","fields":{"command":"startPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:43:37.068Z"}
+{"event":"provider_message_unavailable","fields":{"command":"startPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:37.288Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:43:41.430Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:41.439Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:41.501Z"}
+{"event":"vpn_start_requested","fields":{"revision":"3211C897-3A4B-4B6E-8BA9-DCEAF2739D2B","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:43:42.701Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:43:42.713Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:43:42.806Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:43:42.807Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:43.024Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:43.029Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:43:52.260Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:43:52.479Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:43:57.070Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:57.078Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:43:57.119Z"}
+{"event":"vpn_start_requested","fields":{"revision":"88262607-413D-43E8-9FB2-4004C02E26A2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.492Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.498Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.593Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.594Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.812Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:44:16.817Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:44:47.221Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:44:47.435Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:45:12.872Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:45:13.091Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:45:19.007Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:45:19.021Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:45:19.074Z"}
+{"event":"vpn_start_requested","fields":{"revision":"88262607-413D-43E8-9FB2-4004C02E26A2","storageMode":"local-ipc-v1"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.438Z"}
+{"event":"vpn_status","fields":{"phase":"starting","status":"正在连接"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.444Z"}
+{"event":"vpn_status","fields":{"phase":"active","status":"已连接"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.543Z"}
+{"event":"provider_message_sent","fields":{"command":"handshake"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.545Z"}
+{"event":"provider_message_unavailable","fields":{"command":"handshake","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.760Z"}
+{"event":"monitor_readback_unavailable","fields":{"detail":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:45:20.765Z"}
+{"event":"provider_message_sent","fields":{"command":"startPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:45:22.759Z"}
+{"event":"provider_message_unavailable","fields":{"command":"startPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:45:22.975Z"}
+{"event":"provider_message_sent","fields":{"command":"stopPollingTest"},"instanceID":"app","timestamp":"2026-10-02T13:45:25.492Z"}
+{"event":"provider_message_unavailable","fields":{"command":"stopPollingTest","error":"AutoDarkShift.MonitorChannel (1): 扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。; info=[\"NSLocalizedDescription\": \"扩展通信未返回数据，当前无法读取运行详情或确认配置应用结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T13:45:25.704Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:45:28.835Z"}
+{"event":"vpn_status","fields":{"phase":"stopping","status":"正在断开"},"instanceID":"app","timestamp":"2026-10-02T13:45:28.843Z"}
+{"event":"vpn_status","fields":{"phase":"stopped","status":"已断开"},"instanceID":"app","timestamp":"2026-10-02T13:45:28.898Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T13:45:32.423Z"}
+{"event":"export_metadata","fields":{"scope":"app_runtime_cache"},"instanceID":"app","timestamp":"2026-10-02T13:45:32.429Z"}
+{"data":{"cooldown":3,"darkThreshold":0.39000000000000001,"lightThreshold":0.40000000000000002,"pollingBoost":"hz10","pollInterval":1,"revision":"88262607-413D-43E8-9FB2-4004C02E26A2","stableDuration":1},"event":"export_snapshot","file":"configuration.json"}

@@ -1,0 +1,73 @@
+{"event":"export_metadata","fields":{"appBundleIdentifier":"com.example.AutoDarkShift","appError":"查询扩展状态失败：AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]","appVersion":"1.0.0","buildVersion":"3","debuggerDetached":"must be recorded by tester","declaredProviderBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","deviceModel":"iPhone","diagnosticStorageError":"none","disconnectError":"none","embeddedProviderBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","embeddedStorageMode":"local-v1","storageError":"none","storageMode":"local-v1","storageStatus":"可用（读写检查通过）","systemVersion":"27.0","vpnStatus":"已连接"},"instanceID":"app","timestamp":"2026-10-02T09:06:22.838Z"}
+{"event":"export_metadata","fields":{"scope":"app_diagnostics"},"instanceID":"app","timestamp":"2026-10-02T09:06:22.839Z"}
+{"event":"app_launch","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1","version":"1.0.0 (3)"},"instanceID":"app","timestamp":"2026-10-01T13:23:17.146Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:23:17.149Z"}
+{"event":"vpn_install_requested","fields":{},"instanceID":"app","timestamp":"2026-10-01T13:23:23.295Z"}
+{"event":"vpn_preferences_save_requested","fields":{},"instanceID":"app","timestamp":"2026-10-01T13:23:23.300Z"}
+{"event":"vpn_status","fields":{"status":"1"},"instanceID":"app","timestamp":"2026-10-01T13:23:27.590Z"}
+{"event":"vpn_installed","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:23:27.593Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:23:34.094Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:23:35.311Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.4A44AC14-9FE3-42FB-962A-F34A504DEB65"},"instanceID":"app","timestamp":"2026-10-01T13:23:47.581Z"}
+{"event":"vpn_start_requested","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:23:56.513Z"}
+{"event":"vpn_status","fields":{"status":"2"},"instanceID":"app","timestamp":"2026-10-01T13:23:56.521Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-01T13:23:56.640Z"}
+{"event":"provider_query_error","fields":{"error":"查询扩展状态失败：AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:23:56.991Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:24:05.464Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:24:06.462Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:27:10.187Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.27AD8F76-4DD4-4D15-9A47-008E658FB698"},"instanceID":"app","timestamp":"2026-10-01T13:27:34.992Z"}
+{"event":"vpn_stop_requested","fields":{},"instanceID":"app","timestamp":"2026-10-01T13:27:47.100Z"}
+{"event":"vpn_status","fields":{"status":"5"},"instanceID":"app","timestamp":"2026-10-01T13:27:47.126Z"}
+{"event":"vpn_status","fields":{"status":"1"},"instanceID":"app","timestamp":"2026-10-01T13:27:47.176Z"}
+{"event":"vpn_start_requested","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:27:50.970Z"}
+{"event":"vpn_status","fields":{"status":"2"},"instanceID":"app","timestamp":"2026-10-01T13:27:50.988Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-01T13:27:51.163Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:27:59.263Z"}
+{"event":"app_launch","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1","version":"1.0.0 (3)"},"instanceID":"app","timestamp":"2026-10-01T13:29:27.714Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T13:29:27.718Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-01T13:29:27.805Z"}
+{"event":"provider_query_error","fields":{"error":"查询扩展状态失败：AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T13:29:27.962Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.6866C8FC-C539-4A9A-A5F0-406F80BE9C83"},"instanceID":"app","timestamp":"2026-10-01T13:30:13.646Z"}
+{"event":"vpn_status","fields":{"status":"1"},"instanceID":"app","timestamp":"2026-10-01T13:34:52.654Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-01T14:14:46.586Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T14:25:27.221Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T14:25:29.771Z"}
+{"event":"app_launch","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1","version":"1.0.0 (3)"},"instanceID":"app","timestamp":"2026-10-01T18:50:35.690Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-01T18:50:35.694Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-01T18:50:35.796Z"}
+{"event":"provider_query_error","fields":{"error":"查询扩展状态失败：AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:50:35.906Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:51:00.976Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:51:06.578Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:51:44.139Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:51:55.828Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:52:31.825Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:53:17.892Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:54:12.831Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T18:59:10.477Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T19:00:08.545Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T19:00:09.488Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-01T19:00:13.495Z"}
+{"event":"app_launch","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1","version":"1.0.0 (3)"},"instanceID":"app","timestamp":"2026-10-02T04:02:37.569Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-02T04:02:37.573Z"}
+{"event":"vpn_status","fields":{"status":"1"},"instanceID":"app","timestamp":"2026-10-02T04:02:37.668Z"}
+{"event":"app_launch","fields":{"providerBundleIdentifier":"com.example.AutoDarkShift.PacketTunnel","storageMode":"local-v1","version":"1.0.0 (3)"},"instanceID":"app","timestamp":"2026-10-02T09:01:07.760Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-02T09:01:07.764Z"}
+{"event":"vpn_status","fields":{"status":"1"},"instanceID":"app","timestamp":"2026-10-02T09:01:07.875Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): VPN 配置未启用，请重新安装配置。; info=[\"NSLocalizedDescription\": \"VPN 配置未启用，请重新安装配置。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:31.307Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): VPN 配置未启用，请重新安装配置。; info=[\"NSLocalizedDescription\": \"VPN 配置未启用，请重新安装配置。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:34.068Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): VPN 配置未启用，请重新安装配置。; info=[\"NSLocalizedDescription\": \"VPN 配置未启用，请重新安装配置。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:35.066Z"}
+{"event":"vpn_status","fields":{"status":"3"},"instanceID":"app","timestamp":"2026-10-02T09:01:44.322Z"}
+{"event":"provider_query_error","fields":{"error":"查询扩展状态失败：AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:44.717Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:46.115Z"}
+{"event":"local_storage_ready","fields":{"storageMode":"local-v1"},"instanceID":"app","timestamp":"2026-10-02T09:01:47.633Z"}
+{"event":"app_operation_error","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:01:50.170Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T09:01:53.091Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T09:02:01.618Z"}
+{"event":"export_requested","fields":{},"instanceID":"app","timestamp":"2026-10-02T09:06:22.834Z"}
+{"event":"export_metadata","fields":{"scope":"app_local_cache"},"instanceID":"app","timestamp":"2026-10-02T09:06:22.841Z"}
+{"data":{"cooldown":2,"darkThreshold":0.26000000000000001,"lightThreshold":0.28999999999999998,"pollInterval":1,"revision":"38CCDAF6-CEC1-4A71-9711-DA812EB6D4F4","stableDuration":1},"event":"export_snapshot","file":"configuration.json"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.4A44AC14-9FE3-42FB-962A-F34A504DEB65"},"instanceID":"app","timestamp":"2026-10-01T13:23:47.583Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.27AD8F76-4DD4-4D15-9A47-008E658FB698"},"instanceID":"app","timestamp":"2026-10-01T13:27:34.995Z"}
+{"event":"test_notification_success","fields":{"identifier":"AutoDarkShift.Test.6866C8FC-C539-4A9A-A5F0-406F80BE9C83"},"instanceID":"app","timestamp":"2026-10-01T13:30:13.648Z"}
+{"event":"provider_logs_unavailable","fields":{"error":"AutoDarkShift (1): 扩展未返回消息结果。; info=[\"NSLocalizedDescription\": \"扩展未返回消息结果。\"]"},"instanceID":"app","timestamp":"2026-10-02T09:06:22.846Z"}

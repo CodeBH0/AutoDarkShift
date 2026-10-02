@@ -1,0 +1,184 @@
+import Foundation
+
+enum DisplayMode: String, Codable, Equatable { case dark, light }
+enum SampleSource: String, Codable { case event, poll, initial, wake }
+enum RuntimePhase: String, Codable { case starting, running, sleeping, stopping, stopped, failed }
+enum SubmissionResult: String, Codable { case submitting, success, failed, blocked, cancelled }
+
+struct MonitorConfiguration: Codable, Equatable {
+    var revision = UUID().uuidString
+    var darkThreshold: Double = 0.20
+    var lightThreshold: Double = 0.28
+    var pollInterval: TimeInterval = 1
+    var stableDuration: TimeInterval = 1
+    var cooldown: TimeInterval = 3
+    func validated() throws -> Self {
+        guard darkThreshold.isFinite, lightThreshold.isFinite,
+              0 <= darkThreshold, darkThreshold < lightThreshold, lightThreshold <= 1 else {
+            throw ProjectError.message("阈值必须满足 0 ≤ 深色阈值 < 浅色阈值 ≤ 1。")
+        }
+        guard pollInterval.isFinite, pollInterval > 0,
+              stableDuration.isFinite, stableDuration >= 0,
+              cooldown.isFinite, cooldown >= 0 else {
+            throw ProjectError.message("采样间隔必须为有限正数，稳定时间和冷却时间必须为有限非负数。")
+        }
+        return self
+    }
+
+    static func validBrightness(_ value: Double) -> Bool {
+        value.isFinite && (0...1).contains(value)
+    }
+}
+
+struct SubmissionHistory: Codable, Equatable {
+    var target: DisplayMode
+    var submittedAt: Date
+}
+
+struct RuntimeCounters: Codable {
+    var eventCallbacks: UInt64 = 0
+    var polls: UInt64 = 0
+    var samples: UInt64 = 0
+    /// Number of calls to UNUserNotificationCenter.add; permission blocks do not count.
+    var notificationAttempts: UInt64 = 0
+    var notificationSuccesses: UInt64 = 0
+    var extensionStarts: UInt64 = 0
+}
+
+struct SampleSnapshot: Codable {
+    var timestamp: Date
+    var source: SampleSource
+    /// Invalid values have no numeric brightness; rawValue preserves the actual API result.
+    var brightness: Double?
+    var rawValue: String
+    var sequence: UInt64
+    var actualInterval: TimeInterval?
+}
+
+struct SubmissionSnapshot: Codable {
+    var identifier: String
+    var target: DisplayMode
+    var brightness: Double
+    var source: SampleSource
+    var timestamp: Date
+    var result: SubmissionResult
+    var detail: String?
+}
+
+struct RuntimeSnapshot: Codable {
+    var schemaVersion = 1
+    var instanceID: String
+    var phase: RuntimePhase = .starting
+    var updatedAt = Date()
+    var heartbeatAt: Date?
+    var lastPollAt: Date?
+    var lastPollInterval: TimeInterval?
+    var sample: SampleSnapshot?
+    var submission: SubmissionSnapshot?
+    var history: SubmissionHistory?
+    var desiredTarget: DisplayMode?
+    var pendingTarget: DisplayMode?
+    var stableSince: Date?
+    var appliedConfiguration: MonitorConfiguration
+    var counters: RuntimeCounters
+    var lastError: String?
+    var activePollInterval: TimeInterval?
+}
+
+enum MonitorCommand: String, Codable {
+    case handshake, reloadConfiguration, queryStatus, exportDiagnostics, exportDiagnosticPage
+}
+
+struct MonitorRequest: Codable {
+    var command: MonitorCommand
+    var expectedRevision: String?
+    var configuration: MonitorConfiguration?
+    var exportID: String?
+    var exportOffset: Int?
+}
+
+struct MonitorReply: Codable {
+    var success: Bool
+    var message: String
+    var appliedRevision: String?
+    var snapshot: RuntimeSnapshot?
+    var identity: RuntimeIdentity?
+    var diagnostics: String?
+    var diagnosticPage: Data?
+    var exportID: String?
+    var exportNextOffset: Int?
+    var exportTotalBytes: Int?
+}
+
+/// The control channel verifies the running process, rather than trusting VPN status.
+struct RuntimeIdentity: Codable, Equatable {
+    static let currentProtocolVersion = 3
+    static let currentStorageMode = "app-group-v1"
+    var protocolVersion = currentProtocolVersion
+    var storageMode = currentStorageMode
+    var bundleIdentifier: String
+    var buildVersion: String
+    var appGroupIdentifier: String
+
+    static func installed(in bundle: Bundle = .main, storageMode: RuntimeStorageMode = .appGroup) -> Self {
+        RuntimeIdentity(storageMode: storageMode.rawValue, bundleIdentifier: bundle.bundleIdentifier ?? "missing",
+                        buildVersion: bundle.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "missing",
+                        appGroupIdentifier: bundle.object(forInfoDictionaryKey: "AppGroupIdentifier") as? String ?? "missing")
+    }
+
+    func validate(against expected: RuntimeIdentity) throws {
+        guard self == expected else {
+            throw ProjectError.message("运行中的扩展与当前 App 不兼容。请停止 VPN，安装本次构建的 App 与扩展后重启。期望 \(expected)，实际 \(self)。")
+        }
+    }
+}
+
+struct LogRecord: Codable {
+    var timestamp = Date()
+    var instanceID: String
+    var event: String
+    var fields: [String: String] = [:]
+}
+
+enum ProjectError: LocalizedError, CustomNSError {
+    case message(String)
+    var errorDescription: String? {
+        switch self { case .message(let message): return message }
+    }
+    static var errorDomain: String { "AutoDarkShift" }
+    var errorCode: Int { 1 }
+    var errorUserInfo: [String: Any] { [NSLocalizedDescriptionKey: errorDescription ?? "未知错误"] }
+}
+
+func describeError(_ error: Error) -> String {
+    let value = error as NSError
+    return "\(value.domain) (\(value.code)): \(value.localizedDescription); info=\(value.userInfo)"
+}
+
+enum SharedJSON {
+    static func encoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .custom { date, encoder in
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            var container = encoder.singleValueContainer()
+            try container.encode(formatter.string(from: date))
+        }
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+    static func decoder() -> JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            let string = try container.decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: string) { return date }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: string) { return date }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO-8601 timestamp")
+        }
+        return decoder
+    }
+}

@@ -1,0 +1,45 @@
+PASS: lifecycle and independent sampler
+PASS: query never creates heartbeat
+PASS: stale sampler callbacks ignored
+PASS: permission callback after stop cancelled
+PASS: stop waits for issued notification
+PASS: reload cancels old candidate
+PASS: failed permission retries on fresh samples
+PASS: history survives host replacement
+PASS: startup persistence failure cleans sampling
+PASS: in-app client reuses listener
+PASS: endpoint replies without initialized listener
+PASS: malformed request returns explicit error
+PASS: runtime identity rejects old build/storage
+PASS: nil reply retry succeeds
+PASS: nil replies terminate after two attempts
+PASS: timeout ignores late duplicate callbacks
+PASS: message cancellation completes
+PASS: malformed reply is not retried
+PASS: shared store round trip and corrupt data
+PASS: JSONL tail repair and bounded diagnostic export
+PASS: threshold boundaries and deduplication
+PASS: missing App Group selects explicit local mode
+PASS: provider honors negotiated storage mode
+PASS: local IPC applies configuration and returns real snapshot
+PASS: local IPC rejects missing or mismatched configuration
+PASS: provider errors survive NSError serialization
+PASS: switch follows actual lifecycle and external disconnect
+PASS: switch resets after startup preparation failure
+PASS: switch holds pending setup and blocks duplicate start
+PASS: missing readback does not declare listener failure
+PASS: readback retry backs off and recovers
+PASS: rejected and malformed replies remain errors
+PASS: Boost preserves legacy configuration and selects exact rates
+PASS: polling statistics exclude events and quantify scheduling loss
+PASS: Boost throttles storage while preserving threshold notifications
+PASS: full polling sweep restores saved rate and deduplicates retries
+PASS: polling cancellation sleep stop and reload retain partial results
+PASS: polling commands work through endpoint and local client
+PASS: polling results survive runtime rotation and repair partial tails
+PASS: raw provider probe does not depend on JSON or runtime state
+PASS: transport fallback is sticky serialized and rejects bad replies
+PASS: diagnostic pagination preserves snapshot and UTF8 boundaries
+PASS: provider log cache survives restart and rejects incomplete data
+PASS: real loopback transports polling results into offline export cache
+PASS: 44 core regression scenarios

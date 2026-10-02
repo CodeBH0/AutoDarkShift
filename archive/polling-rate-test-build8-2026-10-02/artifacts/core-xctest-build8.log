@@ -1,0 +1,85 @@
+Building for debugging...
+[0/7] Write sources
+[1/7] /Users/codebh0/Documents/HarnessProject/ios-auto-darkshift/build/CoreTests8Final/x86_64-apple-macosx/debug/AutoDarkShiftCorePackageTests.derived/runner.swift
+[3/7] Write sources
+[4/7] Write swift-version--350D30AF7C59AF6.txt
+[6/20] Compiling AutoDarkShiftCore MonitoringReadback.swift
+[7/20] Compiling AutoDarkShiftCore RuntimeStorage.swift
+[8/20] Compiling AutoDarkShiftCore KeepAliveSwitchControl.swift
+[9/20] Compiling AutoDarkShiftCore Models.swift
+[10/20] Compiling AutoDarkShiftCore MonitorExport.swift
+[11/20] Compiling AutoDarkShiftCore MonitorMessageChannel.swift
+[12/20] Compiling AutoDarkShiftCore SharedStore.swift
+[13/20] Compiling AutoDarkShiftCore SwitchMonitor.swift
+[14/20] Compiling AutoDarkShiftCore LoopbackMonitorTransport.swift
+[15/20] Compiling AutoDarkShiftCore LocalMonitoringClient.swift
+[16/20] Compiling AutoDarkShiftCore MonitorControlEndpoint.swift
+[17/20] Compiling AutoDarkShiftCore ServiceContracts.swift
+[18/20] Emitting module AutoDarkShiftCore
+[19/21] Compiling AutoDarkShiftCore ThresholdStateMachine.swift
+[20/25] Compiling AutoDarkShiftCoreTests ThresholdStateMachineTests.swift
+[21/25] Compiling AutoDarkShiftCoreTests RuntimeRegressionTests.swift
+[22/25] Emitting module AutoDarkShiftCoreTests
+[23/25] Compiling AutoDarkShiftCoreTests RuntimeRegressionScenarios.swift
+[24/27] Emitting module AutoDarkShiftCorePackageTests
+[25/27] Compiling AutoDarkShiftCorePackageTests runner.swift
+[25/27] Write Objects.LinkFileList
+[26/27] Linking AutoDarkShiftCorePackageTests
+Build complete! (20.31s)
+Test Suite 'All tests' started at 2026-10-02 22:14:15.950.
+Test Suite 'AutoDarkShiftCorePackageTests.xctest' started at 2026-10-02 22:14:15.952.
+Test Suite 'RuntimeRegressionTests' started at 2026-10-02 22:14:15.952.
+Test Case '-[AutoDarkShiftCoreTests.RuntimeRegressionTests testRuntimeTransportAndStorageRegressions]' started.
+Test Case '-[AutoDarkShiftCoreTests.RuntimeRegressionTests testRuntimeTransportAndStorageRegressions]' passed (1.750 seconds).
+Test Suite 'RuntimeRegressionTests' passed at 2026-10-02 22:14:17.702.
+	 Executed 1 test, with 0 failures (0 unexpected) in 1.750 (1.751) seconds
+Test Suite 'ThresholdStateMachineTests' started at 2026-10-02 22:14:17.702.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testBackwardsClockResetsStableTimer]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testBackwardsClockResetsStableTimer]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testConfigurationChangeRequiresNewStability]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testConfigurationChangeRequiresNewStability]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testCooldownDoesNotEmitObsoletePendingTarget]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testCooldownDoesNotEmitObsoletePendingTarget]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testCooldownRetainsTargetAndFreshSampleAtEndEmits]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testCooldownRetainsTargetAndFreshSampleAtEndEmits]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testDarkBoundaryIsInclusiveAndRequiresStability]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testDarkBoundaryIsInclusiveAndRequiresStability]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testFailureRetainsTargetAndRetriesAfterCooldownFromCompletion]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testFailureRetainsTargetAndRetriesAfterCooldownFromCompletion]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testIllegalBrightnessNeverEmitsAndResetsStability]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testIllegalBrightnessNeverEmitsAndResetsStability]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testInitialMiddleBandWaits]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testInitialMiddleBandWaits]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testInvalidConfigurationRejectedWithoutMutatingEngine]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testInvalidConfigurationRejectedWithoutMutatingEngine]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testJitterResetsStabilityIncludingMiddleBand]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testJitterResetsStabilityIncludingMiddleBand]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testLightBoundaryIsInclusive]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testLightBoundaryIsInclusive]' passed (0.001 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testMiddleBandKeepsExistingTargetWithoutSubmission]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testMiddleBandKeepsExistingTargetWithoutSubmission]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOneInFlightRequestAndStaleCompletionIgnored]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOneInFlightRequestAndStaleCompletionIgnored]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOppositeBoundaryResetsStability]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOppositeBoundaryResetsStability]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOppositeConditionDuringInFlightRemainsPending]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testOppositeConditionDuringInFlightRemainsPending]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testRestoredFutureTimestampDoesNotBlockIndefinitely]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testRestoredFutureTimestampDoesNotBlockIndefinitely]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testRestoredHistoryDeduplicatesAndRestoresCooldown]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testRestoredHistoryDeduplicatesAndRestoresCooldown]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testSleepResetCannotCountSleepAsStableTime]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testSleepResetCannotCountSleepAsStableTime]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testSuccessfulTargetDeduplicatesAndOppositeSwitches]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testSuccessfulTargetDeduplicatesAndOppositeSwitches]' passed (0.000 seconds).
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testZeroAndOneAreValid]' started.
+Test Case '-[AutoDarkShiftCoreTests.ThresholdStateMachineTests testZeroAndOneAreValid]' passed (0.000 seconds).
+Test Suite 'ThresholdStateMachineTests' passed at 2026-10-02 22:14:17.710.
+	 Executed 20 tests, with 0 failures (0 unexpected) in 0.006 (0.008) seconds
+Test Suite 'AutoDarkShiftCorePackageTests.xctest' passed at 2026-10-02 22:14:17.711.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 1.757 (1.759) seconds
+Test Suite 'All tests' passed at 2026-10-02 22:14:17.711.
+	 Executed 21 tests, with 0 failures (0 unexpected) in 1.757 (1.761) seconds
+◇ Test run started.
+↳ Testing Library Version: 102 (x86_64-apple-macos13.0)
+✔ Test run with 0 tests passed after 0.001 seconds.
