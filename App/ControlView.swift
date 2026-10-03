@@ -45,11 +45,11 @@ struct ControlView: View {
                         LabeledContent("实际轮询间隔", value: snapshot.lastPollInterval.map { "\(formatted($0)) 秒" } ?? "无")
                         LabeledContent("目标轮询频率", value: snapshot.activePollInterval.map { "\(Int((1 / $0).rounded())) Hz" } ?? "未采样")
                         if let trend = snapshot.trend {
+                            LabeledContent("记录使用的模型", value: snapshot.schemaVersion >= 3 ? "数学模型 v2" : "历史模型 v1")
                             LabeledContent("趋势评分 S", value: formatted(trend.score))
                             LabeledContent("亮度位置 A", value: formatted(trend.position))
                             LabeledContent("累计变化 Δ", value: formatted(trend.change))
-                            LabeledContent("归一化速度 V", value: formatted(trend.speed))
-                            LabeledContent("方向一致性 D", value: formatted(trend.direction))
+                            LabeledContent(snapshot.schemaVersion >= 3 ? "预测贡献 V" : "历史归一化速度 V", value: formatted(trend.speed))
                             LabeledContent("变化速度", value: "\(formatted(trend.velocity)) / 秒")
                             LabeledContent("变化起始亮度", value: trend.baseline.map(formatted) ?? "等待明显变化")
                             LabeledContent("动态采样", value: trend.dynamicSampling ? "进行中" : "常规 1 Hz")
@@ -92,7 +92,7 @@ struct ControlView: View {
                     }
                     Button("发送测试通知") { controller.sendTestNotification() }.disabled(controller.busy)
                     if let feedback = controller.testFeedback { Text(feedback).font(.caption) }
-                    Button("导出运行日志") { controller.exportLogs() }.disabled(controller.busy)
+                    Button("导出运行与 Boost 日志") { controller.exportLogs() }.disabled(controller.busy)
                 } header: { Text("通知与统计") } footer: {
                     Text("成功表示系统接受通知请求，不代表已展示或快捷指令已执行。统计为累计值，可能因扩展异常终止丢失最后一次写入。")
                 }
@@ -113,9 +113,9 @@ struct ControlView: View {
             .onAppear { controller.setForeground(scenePhase == .active) }
             .onDisappear { controller.setForeground(false) }
             .onChange(of: scenePhase) { _, phase in controller.setForeground(phase == .active) }
-            .onChange(of: controller.exportURL) { _, url in showingExport = url != nil }
-            .sheet(isPresented: $showingExport, onDismiss: { controller.exportURL = nil }) {
-                if let url = controller.exportURL { ShareSheet(url: url) }
+            .onChange(of: controller.exportURLs) { _, urls in showingExport = !urls.isEmpty }
+            .sheet(isPresented: $showingExport, onDismiss: { controller.exportURLs = [] }) {
+                if !controller.exportURLs.isEmpty { ShareSheet(urls: controller.exportURLs) }
             }
         }
     }
@@ -143,9 +143,9 @@ struct ControlView: View {
 }
 
 private struct ShareSheet: UIViewControllerRepresentable {
-    let url: URL
+    let urls: [URL]
     func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        UIActivityViewController(activityItems: urls, applicationActivities: nil)
     }
     func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

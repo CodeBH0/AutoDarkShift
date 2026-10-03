@@ -56,7 +56,7 @@ struct SubmissionSnapshot: Codable {
 }
 
 struct RuntimeSnapshot: Codable {
-    var schemaVersion = 2
+    var schemaVersion = 3
     var instanceID: String
     var phase: RuntimePhase = .starting
     var updatedAt = Date()
@@ -73,11 +73,15 @@ struct RuntimeSnapshot: Codable {
     var counters: RuntimeCounters
     var lastError: String?
     var activePollInterval: TimeInterval?
+    /// Independent full-resolution diagnostic captures; ordinary logs remain throttled.
+    var boostTraceIDs: [String]?
 }
 
 enum MonitorCommand: String, Codable {
     case handshake, reloadConfiguration, queryStatus, exportDiagnostics, exportDiagnosticPage
 }
+
+enum MonitorLogStream: String, Codable, CaseIterable { case runtime, boost }
 
 struct MonitorRequest: Codable {
     var command: MonitorCommand
@@ -85,6 +89,7 @@ struct MonitorRequest: Codable {
     var configuration: MonitorConfiguration?
     var exportID: String?
     var exportOffset: Int?
+    var exportStream: MonitorLogStream?
 }
 
 struct MonitorReply: Codable {
@@ -98,6 +103,7 @@ struct MonitorReply: Codable {
     var exportID: String?
     var exportNextOffset: Int?
     var exportTotalBytes: Int?
+    var exportStream: MonitorLogStream?
 }
 
 /// The control channel verifies the running process, rather than trusting VPN status.
@@ -128,6 +134,31 @@ struct LogRecord: Codable {
     var instanceID: String
     var event: String
     var fields: [String: String] = [:]
+}
+
+enum BoostTraceEncoding {
+    static let sampleColumns = "sequence,unixSeconds,uptime,brightness,source,requestedHz,nextHz,S,baseline,filteredBrightness,velocity"
+    /// The start/end records frame an entire capture; samples contain no repeated identity or constants.
+    static func encode(_ record: LogRecord) throws -> Data {
+        guard record.event == "boost_trace_sample" else { return try SharedJSON.encoder().encode(record) }
+        func number(_ key: String) -> Any {
+            guard let text = record.fields[key], let value = Double(text), value.isFinite else { return NSNull() }
+            return value
+        }
+        let source = ["initial": 0, "poll": 1, "event": 2, "wake": 3][record.fields["source"] ?? ""]
+        let sequence: Any = record.fields["sequence"].flatMap(UInt64.init).map { NSNumber(value: $0) } ?? NSNull()
+        var object: [String: Any] = ["s": [sequence, record.timestamp.timeIntervalSince1970, number("uptime"),
+            number("brightness"), source.map { $0 as Any } ?? NSNull(), number("requestedFrequency"),
+            number("nextFrequency"), number("S"), number("baseline"), number("filteredBrightness"), number("velocity")]]
+        if record.fields["stateChanged"] == "true" {
+            func target(_ key: String) -> Int { ["none": 0, "dark": 1, "light": 2][record.fields[key] ?? "none"] ?? 0 }
+            object["n"] = ["d": target("desiredTarget"), "p": target("pendingTarget"),
+                "c": record.fields["candidateID"] == "none" ? NSNull() : (record.fields["candidateID"] as Any? ?? NSNull()),
+                "f": record.fields["inFlightID"] == "none" ? NSNull() : (record.fields["inFlightID"] as Any? ?? NSNull())]
+        }
+        return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .fragmentsAllowed])
+    }
+
 }
 
 enum ProjectError: LocalizedError, CustomNSError {

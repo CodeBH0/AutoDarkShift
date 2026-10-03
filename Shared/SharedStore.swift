@@ -101,19 +101,48 @@ final class SharedStore: MonitorStore {
         try locked(exclusive: true) { try write(history, name: "submission-history.json") }
     }
 
-    func saveProviderDiagnostics(_ text: String) throws {
-        let data = Data(text.utf8)
-        guard !data.isEmpty, data.count <= MonitorWire.maximumFrameBytes else { throw ProjectError.message("扩展日志缓存为空或超过容量。") }
-        for line in text.split(separator: "\n") { _ = try JSONSerialization.jsonObject(with: Data(line.utf8)) }
-        try locked(exclusive: true) { try data.write(to: url("provider-diagnostics.jsonl"), options: Self.writeOptions) }
+    private func providerCacheName(_ stream: MonitorLogStream) -> String {
+        stream == .runtime ? "provider-diagnostics.jsonl" : "provider-boost-traces.jsonl"
     }
 
-    func providerDiagnostics() throws -> String? {
-        try locked(exclusive: false) {
-            let path = url("provider-diagnostics.jsonl")
-            guard files.fileExists(atPath: path.path) else { return nil }
-            return String(decoding: try Data(contentsOf: path), as: UTF8.self)
+    func saveProviderDiagnostics(_ text: String, stream: MonitorLogStream = .runtime) throws {
+        let data = Data(text.utf8)
+        guard (stream == .boost || !data.isEmpty), data.count <= MonitorWire.maximumDiagnosticBytes else {
+            throw ProjectError.message("扩展日志缓存为空或超过容量。")
         }
+        guard data.isEmpty || data.last == 0x0A else { throw ProjectError.message("扩展日志缓存末行不完整。") }
+        for line in text.split(separator: "\n") { _ = try JSONSerialization.jsonObject(with: Data(line.utf8)) }
+        try locked(exclusive: true) {
+            // Upgrade before replacing the mixed cache; a failed Boost sync must keep its acquired history.
+            if stream == .runtime, !files.fileExists(atPath: url(providerCacheName(.boost)).path),
+               let oldBoost = try cachedProviderData(.boost), !oldBoost.isEmpty {
+                try oldBoost.write(to: url(providerCacheName(.boost)), options: Self.writeOptions)
+            }
+            try data.write(to: url(providerCacheName(stream)), options: Self.writeOptions)
+        }
+    }
+
+    /// Split a pre-v2 mixed cache on read; new snapshots use independent atomic files.
+    private func cachedProviderData(_ stream: MonitorLogStream) throws -> Data? {
+        let path = url(providerCacheName(stream))
+        if stream == .boost, files.fileExists(atPath: path.path) { return try Data(contentsOf: path) }
+        let legacy = url(providerCacheName(.runtime))
+        guard files.fileExists(atPath: legacy.path) else { return nil }
+        let source = try Data(contentsOf: legacy)
+        var result = Data()
+        for line in source.split(separator: 0x0A) {
+            let object = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any]
+            let captureEvents: Set<String> = ["boost_trace_start", "boost_trace_sample", "boost_trace_end",
+                "boost_trace_export_boundary", "boost_trace_export_omitted"]
+            let isBoost = captureEvents.contains(object?["event"] as? String ?? "") || object?["s"] != nil
+            if isBoost == (stream == .boost) { result.append(contentsOf: line); result.append(0x0A) }
+        }
+        if stream == .boost, result.isEmpty { return nil }
+        return result
+    }
+
+    func providerDiagnostics(stream: MonitorLogStream = .runtime) throws -> String? {
+        try locked(exclusive: false) { try cachedProviderData(stream).map { String(decoding: $0, as: UTF8.self) } }
     }
 
     private func logURL(_ index: Int, prefix: String = "runtime") -> URL { url("\(prefix)-\(index).jsonl") }
@@ -163,33 +192,157 @@ final class SharedStore: MonitorStore {
         }
     }
 
+    /// Independent full-resolution Boost captures. Open files are never rotated away.
+    func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws {
+        guard UUID(uuidString: id) != nil else { throw ProjectError.message("亮度日志编号无效。") }
+        var data = Data()
+        for record in records {
+            data.append(try BoostTraceEncoding.encode(record)); data.append(0x0A)
+        }
+        try locked(exclusive: true) {
+            let active = url("boost-trace-\(id).open.jsonl")
+            let complete = url("boost-trace-\(id).jsonl")
+            guard !files.fileExists(atPath: complete.path) else { throw ProjectError.message("亮度日志已结束，不能再次追加。") }
+            let size = try repairedTraceSize(at: active)
+            guard size + data.count <= 8 * 1024 * 1024 else {
+                var marker = try SharedJSON.encoder().encode(LogRecord(instanceID: records.first?.instanceID ?? "store", event: "boost_trace_end", fields: [
+                    "traceID": id, "complete": "false", "reason": "capture_size_limit", "retainedBytes": String(size)
+                ])); marker.append(0x0A)
+                try appendTraceData(marker, to: active)
+                try files.moveItem(at: active, to: complete)
+                try pruneBoostTraces()
+                throw ProjectError.message("单次亮度日志超过 8 MiB；已保留部分记录并标记 capture_size_limit。")
+            }
+            try appendTraceData(data, to: active)
+            if finished { try files.moveItem(at: active, to: complete) }
+            try pruneBoostTraces()
+        }
+    }
+
+    private func repairedTraceSize(at path: URL) throws -> Int {
+        guard files.fileExists(atPath: path.path) else { return 0 }
+        let handle = try FileHandle(forUpdating: path)
+        defer { try? handle.close() }
+        let end = try handle.seekToEnd()
+        guard end > 0 else { return 0 }
+        try handle.seek(toOffset: end - 1)
+        if try handle.read(upToCount: 1)?.first == 0x0A { return Int(end) }
+        try handle.seek(toOffset: 0)
+        let damaged = try handle.readToEnd() ?? Data()
+        let size = damaged.lastIndex(of: 0x0A).map { $0 + 1 } ?? 0
+        try handle.truncate(atOffset: UInt64(size))
+        return size
+    }
+
+    private func appendTraceData(_ data: Data, to path: URL) throws {
+        if !files.fileExists(atPath: path.path) { try Data().write(to: path, options: Self.writeOptions) }
+        _ = try repairedTraceSize(at: path)
+        let handle = try FileHandle(forUpdating: path)
+        defer { try? handle.close() }
+        try handle.seekToEnd()
+        try handle.write(contentsOf: data)
+    }
+
+    private func boostTracePaths() throws -> [URL] {
+        try files.contentsOfDirectory(at: root, includingPropertiesForKeys: [.creationDateKey])
+            .filter { $0.lastPathComponent.hasPrefix("boost-trace-") && $0.pathExtension == "jsonl" }
+            .sorted {
+                let first = (try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                let second = (try? $1.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast
+                return first == second ? $0.lastPathComponent < $1.lastPathComponent : first < second
+            }
+    }
+
+    private func pruneBoostTraces() throws {
+        var completed = try boostTracePaths().filter { !$0.lastPathComponent.contains(".open.") }
+        var bytes = try completed.reduce(0) { total, path in
+            total + ((try files.attributesOfItem(atPath: path.path)[.size] as? NSNumber)?.intValue ?? 0)
+        }
+        while completed.count > 8 || bytes > 16 * 1024 * 1024 {
+            let oldest = completed.removeFirst()
+            bytes -= (try files.attributesOfItem(atPath: oldest.path)[.size] as? NSNumber)?.intValue ?? 0
+            try files.removeItem(at: oldest)
+        }
+    }
+
+    /// A new listener closes orphan captures; opening an App store does not interrupt a live trace.
+    func recoverBoostTraces(instanceID: String, at date: Date) throws {
+        try locked(exclusive: true) {
+            for path in try boostTracePaths() where path.lastPathComponent.contains(".open.") {
+                let id = String(path.lastPathComponent.dropFirst("boost-trace-".count).dropLast(".open.jsonl".count))
+                let record = LogRecord(timestamp: date, instanceID: instanceID, event: "boost_trace_end", fields: [
+                    "traceID": id, "complete": "false", "reason": "process_interrupted",
+                    "detail": "Retained samples are partial; the final buffered second may be missing."
+                ])
+                var line = try SharedJSON.encoder().encode(record); line.append(0x0A)
+                try appendTraceData(line, to: path)
+                try files.moveItem(at: path, to: url("boost-trace-\(id).jsonl"))
+            }
+            try pruneBoostTraces()
+        }
+    }
+
+    /// Whole retained files only; exports never crop a Boost into a misleading sample tail.
+    private func boostTraceData(maxBytes: Int = 12 * 1024 * 1024) throws -> Data {
+        var segments: [Data] = []
+        var bytes = 0
+        var omitted: [String] = []
+        for path in try boostTracePaths().reversed() {
+            let segment = try Data(contentsOf: path)
+            let completeLines = segment.lastIndex(of: 0x0A).map { Data(segment.prefix(through: $0)) } ?? Data()
+            var exported = completeLines
+            if path.lastPathComponent.contains(".open.") {
+                let id = String(path.lastPathComponent.dropFirst("boost-trace-".count).dropLast(".open.jsonl".count))
+                exported.append(try SharedJSON.encoder().encode(LogRecord(instanceID: "store", event: "boost_trace_export_boundary", fields: [
+                    "traceID": id, "complete": "false", "reason": "capture_active_at_export"
+                ]))); exported.append(0x0A)
+            }
+            if bytes + exported.count <= maxBytes {
+                segments.append(exported); bytes += exported.count
+            } else { omitted.append(path.lastPathComponent) }
+        }
+        var data = Data()
+        if !omitted.isEmpty {
+            data.append(try SharedJSON.encoder().encode(LogRecord(instanceID: "store", event: "boost_trace_export_omitted", fields: [
+                "files": omitted.joined(separator: ","), "reason": "whole_capture_export_budget", "exportBudgetBytes": String(maxBytes)
+            ]))); data.append(0x0A)
+        }
+        for segment in segments.reversed() { data.append(segment) }
+        return data
+    }
+
+    func boostTraceDiagnostics() throws -> String {
+        try locked(exclusive: false) { String(decoding: try boostTraceData(), as: UTF8.self) }
+    }
+
     /// Read while writers are locked; tolerate only a truncated final line left by process death.
-    func exportData(metadata: [String: String]) throws -> Data {
+    func exportData(metadata: [String: String], stream: MonitorLogStream = .runtime, includeProviderCache: Bool = true) throws -> Data {
         try locked(exclusive: false) {
-            var data = try SharedJSON.encoder().encode(LogRecord(instanceID: "app", event: "export_metadata", fields: metadata))
+            var data = try SharedJSON.encoder().encode(LogRecord(instanceID: "app", event: "export_metadata", fields: metadata.merging(["stream": stream.rawValue]) { _, new in new }))
             data.append(0x0A)
-            for name in ["configuration.json", "status.json", "submission-history.json"] {
-                let path = url(name)
-                if files.fileExists(atPath: path.path) {
-                    let object = try JSONSerialization.jsonObject(with: Data(contentsOf: path))
-                    data.append(try JSONSerialization.data(withJSONObject: ["event": "export_snapshot", "file": name, "data": object], options: [.sortedKeys]))
-                    data.append(0x0A)
+            if stream == .runtime {
+                for name in ["configuration.json", "status.json", "submission-history.json"] {
+                    let path = url(name)
+                    if files.fileExists(atPath: path.path) {
+                        let object = try JSONSerialization.jsonObject(with: Data(contentsOf: path))
+                        data.append(try JSONSerialization.data(withJSONObject: ["event": "export_snapshot", "file": name, "data": object], options: [.sortedKeys]))
+                        data.append(0x0A)
+                    }
                 }
-            }
-            for index in stride(from: logFileCount - 1, through: 0, by: -1) {
-                let path = logURL(index)
-                if files.fileExists(atPath: path.path) {
-                    let segment = try Data(contentsOf: path)
-                    if let end = segment.lastIndex(of: 0x0A) { data.append(segment.prefix(through: end)) }
+                for index in stride(from: logFileCount - 1, through: 0, by: -1) {
+                    let path = logURL(index)
+                    if files.fileExists(atPath: path.path) {
+                        let segment = try Data(contentsOf: path)
+                        if let end = segment.lastIndex(of: 0x0A) { data.append(segment.prefix(through: end)) }
+                    }
                 }
-            }
-            data.append(try legacyDiagnosticData())
-            let cachedPath = url("provider-diagnostics.jsonl")
-            if files.fileExists(atPath: cachedPath.path) {
-                let cached = try Data(contentsOf: cachedPath)
-                let acquiredAt = try files.attributesOfItem(atPath: cachedPath.path)[.modificationDate] as? Date ?? Date()
+                data.append(try legacyDiagnosticData())
+            } else { data.append(try boostTraceData()) }
+            let cachedPath = url(providerCacheName(stream))
+            if includeProviderCache, let cached = try cachedProviderData(stream) {
+                let acquiredAt = (try? files.attributesOfItem(atPath: cachedPath.path)[.modificationDate] as? Date) ?? Date()
                 data.append(try SharedJSON.encoder().encode(LogRecord(timestamp: acquiredAt, instanceID: "app", event: "provider_logs_cache_export", fields: [
-                    "bytes": String(cached.count), "source": "provider_originated_persisted_copy"
+                    "bytes": String(cached.count), "source": "provider_originated_persisted_copy", "stream": stream.rawValue
                 ])))
                 data.append(0x0A)
                 data.append(cached)
@@ -242,6 +395,10 @@ final class SharedStore: MonitorStore {
     }
 
     static func writeExport(_ data: Data) throws -> URL {
+        try writeExports([.runtime: data])[0]
+    }
+
+    static func writeExports(_ streams: [MonitorLogStream: Data]) throws -> [URL] {
         let files = FileManager.default
         let directory = files.temporaryDirectory.appendingPathComponent("AutoDarkShift-Exports", isDirectory: true)
         try files.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -250,8 +407,12 @@ final class SharedStore: MonitorStore {
             where old.pathExtension == "jsonl" {
             try files.removeItem(at: old)
         }
-        let result = directory.appendingPathComponent("AutoDarkShift-\(UUID().uuidString).jsonl")
-        try data.write(to: result, options: .atomic)
-        return result
+        let id = UUID().uuidString
+        return try MonitorLogStream.allCases.compactMap { stream in
+            guard let data = streams[stream] else { return nil }
+            let result = directory.appendingPathComponent("AutoDarkShift-\(stream.rawValue)-\(id).jsonl")
+            try data.write(to: result, options: .atomic)
+            return result
+        }
     }
 }

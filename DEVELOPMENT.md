@@ -4,24 +4,24 @@
 
 ## Git 文件管理
 
-源码、测试、Xcode 工程与共享 Scheme、公共配置及示例、模型和开发文档继续提交。以下文件由 `.gitignore` 排除，已有文件只停止 Git 跟踪，仍留在本地：
+源码、测试、Xcode 工程与共享 Scheme、公共配置及示例、模型和开发文档继续提交。以下本地资料由 `.gitignore` 排除：
 
 - 构建目录、SwiftPM 缓存、IPA / Xcode 归档、测试结果与调试符号。
 - Xcode 用户设置、`Config/Local.xcconfig`、证书、私钥及描述文件。
-- `AutoDarkShift-*.jsonl` 设备导出日志、`*.log` 验证日志、`archive/*/artifacts/`、`archive/*/source/` 和原始 `WORK_VPN_BRIGHTNESS.md`。
+- `local-data/` 中的原始设备日志、清洗 trace、分析过程数据和原始需求文档，以及各类日志与构建输出。
 - macOS 文件元数据和 Python 字节码缓存。
 
-遵循云端整理，`archive/polling-rate-test-build8-2026-10-02/source/` 历史源码和 `WORK_VPN_BRIGHTNESS.md` 只留在本地，不参与当前构建或提交。归档说明和清单继续提交，并保留历史源码、安装包与日志的校验值；静态检查对这些本地文件仅在存在时检查校验值。历史日志分析文档中的原始输入也只留在本地。停止跟踪不会移除旧提交中的文件；可从原始提交 `0cb2f8c` 恢复历史源码和产物。
+按本轮要求，项目内 build 8 轮询实验归档已删除。历史源码仍可从原始提交 `0cb2f8c` 查阅，不能覆盖当前实现。原始设备日志保存于 `local-data/device-logs/`，清洗输入保存于 `local-data/analysis/`，原始需求资料保存于 `local-data/reference/`；这些本地文件不参与构建或提交。静态检查验证工程边界和提交文件规则，不再依赖旧归档清单。
 
 以下命令均在项目根目录执行。
 
 iOS 17+ 亮度自动切换验证工程。主 App 管理保活、通知权限和配置；当前仍由 VPN 的 Packet Tunnel 进程运行独立切换监听模块，读取亮度、计算趋势评分并提交 `dark` / `light` 本地通知。外部快捷指令负责切换系统外观。
 
-版本 **1.0.1** 按 [MathModel v1](MathModel%20v1.md) 第 1–4 章和第 8 章实现亮度趋势评分与动态采样。评分为 `S = 0.25A + 0.35Δ + 0.30V + 0.10D`，`S ≥ 0.50` 请求浅色，`S ≤ −0.50` 请求深色，其余保持既有目标。常规 1 Hz，动态采样按速度选择 10 / 30 / 60 / 120 Hz。实现约定和边界见 [趋势模型说明](docs/TREND_MODEL.md)。
+版本 **1.0.1** 使用 [MathModel v2](docs/models/MathModel-v2.md)。v1 原文保留于 [MathModel v1](docs/models/MathModel-v1.md)。v2 删除 D，定义带噪声死区的累计变化 Δ，并将 V 改为受已发生变化限制的 0.5 秒预测贡献；评分为 `S = 0.25A_aligned + 0.55Δ + 0.20V`，`S ≥ 0.50` 请求浅色，`S ≤ −0.50` 请求深色，其余保持既有目标。常规 1 Hz，动态按统一的一秒速度窗选择 10 / 30 / 60 / 120 Hz。完整公式、基线与反向规则见模型文档和 [趋势实现说明](docs/TREND_MODEL.md)。
 
-模型观测系统屏幕亮度，不观测真实环境照度；相同亮度轨迹不能区分真实环境。首次读数只建立基准，静止亮度本身不足以触发趋势切换。旧亮度阈值、固定采样间隔、稳定时间及 Boost 字段不再影响算法；保留通知冷却配置、成功历史去重与日志回传。第 5–7 章不作为本次实现或验收依据。
+模型观测系统屏幕亮度，不观测真实环境照度；相同亮度轨迹不能区分真实环境。首次静止读数不能触发切换。变化基线独立于动态采样：降频和稳定停留不清除累计变化；相对峰 / 谷累计反向至少 0.010 后建立反向起点，明确的生命周期重置清除观测。旧阈值与实验参数不参与正式评分，通知冷却、成功历史去重与生命周期取消规则继续使用。
 
-Provider Message 不可用时使用仅本机的认证 TCP 通道，扩展日志分块取回并持久化到 App，关闭 VPN 后仍能导出已同步记录。具体链路见 [LOG_TRANSPORT.md](docs/LOG_TRANSPORT.md)。旧轮询测试源码与 build 8 安装包的获取方式见 [轮询率测试归档](archive/polling-rate-test-build8-2026-10-02/README.md)，正式算法不会启动实验扫描。
+Provider Message 不可用时使用仅本机的认证 TCP 通道，运行与 Boost 日志分别取回并持久化到 App，关闭 VPN 后仍能导出已同步记录。具体链路见 [LOG_TRANSPORT.md](docs/LOG_TRANSPORT.md)。正式算法不会启动旧轮询实验扫描。
 
 当前保活方案为 VPN；保活与监听分层，详见 [架构说明](docs/ARCHITECTURE.md)。原始开发要求见历史提交中的 [WORK_VPN_BRIGHTNESS.md](https://github.com/CodeBH0/AutoDarkShift/blob/0cb2f8c68de1aecf5721c2af471f3b2e32ac14f5/WORK_VPN_BRIGHTNESS.md)，评分、采样及验收行为以本版本说明为准。
 
@@ -31,7 +31,9 @@ Provider Message 不可用时使用仅本机的认证 TCP 通道，扩展日志�
 
 ## 当前验证状态
 
-2026-10-03 状态机修复已通过 29 项模型测试、48 项运行时回归及工程静态检查（XCTest 总计 30 个方法，0 失败）。随后已使用修复后的当前源码完成 iPhone arm64 Release 归档和 IPA 打包，两个组件均为 1.0.1 / build 11；版本、权限、占位签名、ZIP 与 SHA-256 校验通过。错误覆盖的 build 10 产物已删除，未尝试恢复。实际范围和命令见 [验证记录](docs/STATIC_VALIDATION.md)。真实证书签名、安装与 iPhone 上的亮度、VPN、后台行为需要按 [真机验收表](docs/DEVICE_ACCEPTANCE.md) 记录；编译和模拟输入回归不能替代这些结论。
+数学模型 v2 和双日志的本轮验证、IPA build 与实际执行范围集中记录于 [STATIC_VALIDATION.md](docs/STATIC_VALIDATION.md)。原始设备输入来自 build 3、4、5、7、12；清洗 trace 的 196 行去重后是 105 个独立样本，不能当成 8 次独立环境转换或带标签的正确率数据。
+
+运行日志与 Boost 记录分别写入、同步、缓存和导出；点击“导出运行与 Boost 日志”一次分享两个 JSONL 文件。Boost 使用版本化紧凑行，读取与解码见 [BOOST_TRACE_LOG.md](docs/BOOST_TRACE_LOG.md)。真实证书签名、安装与 iPhone 上的亮度、VPN、后台行为仍需按 [真机验收表](docs/DEVICE_ACCEPTANCE.md) 记录；编译、回放与模拟输入不能替代这些结论。
 
 ## 签名与安装
 
@@ -44,7 +46,7 @@ Provider Message 不可用时使用仅本机的认证 TCP 通道，扩展日志�
 
 `Config/Local.xcconfig` 已列入忽略规则；工程没有个人团队 ID、证书、凭据或远程服务器配置。App 与扩展的版本号和 build number 统一继承 `Config/Project.xcconfig`。
 
-如需在 iPhone 上使用 p12 重新签名，可运行 `bash tools/package_ipa.sh`。脚本每次自动递增共享 build 号，即使构建失败也不回退；运行前不需要手动递增。IPA 与校验文件包含 build 号，归档、缓存、权限文件和编译日志分别保存在 `build/build<编号>/`，已有产物拒绝覆盖。当前产物为 `build/AutoDarkShift-1.0.1-build11-resign.ipa`。该包仅有携带权限的本地占位签名，需用自己的证书和匹配的描述文件重签主 App 与扩展。标识符、App Group 同步要求及实际验证范围见 [IPA 重签说明](docs/IPA_SIGNING.md)。
+如需在 iPhone 上使用 p12 重新签名，可运行 `bash tools/package_ipa.sh`。脚本每次自动递增共享 build 号，即使构建失败也不回退；运行前不需要手动递增。IPA 与校验文件包含 build 号，归档、缓存、权限文件和编译日志分别保存在 `build/build<编号>/`，已有产物拒绝覆盖。当前产物为 `build/AutoDarkShift-1.0.1-build13-resign.ipa`。该包仅有携带权限的本地占位签名，需用自己的证书和匹配的描述文件重签主 App 与扩展。标识符、App Group 同步要求及实际验证范围见 [IPA 重签说明](docs/IPA_SIGNING.md)。
 
 ## 构建与纯逻辑测试
 
@@ -72,7 +74,7 @@ xcodebuild -project AutoDarkShift.xcodeproj -scheme AutoDarkShift \
 
 在 Xcode 内也可选择 `AutoDarkShiftCore` Scheme 后 Product → Test。该 Scheme 仅构建纯逻辑测试 Target；`AutoDarkShift` Scheme 同时提供 App 构建、运行、归档和测试。测试 Target 与 Swift Package 均编译 `Shared/` 和 `Monitoring/` 中的同一份生产实现，不编译 UIKit、VPN 或 PiP 宿主。
 
-`Tests/ThresholdStateMachineTests.swift` 覆盖评分分量与裁剪、切换边界、五档采样、固定时间窗与不均匀采样插值、噪声过滤、最近 10 次有效变化、按时间退出、通知冷却 / 重试 / 去重、非法输入与观测重置。`RuntimeRegressionTests.swift` 包装运行时、消息通道、存储、配置同步、跨进程错误、保活开关及日志回传回归，并检查变频保留观察者与在途授权、采样间断重置和高速写入节流。
+`Tests/ThresholdStateMachineTests.swift` 覆盖 v2 评分与切换边界、预测贡献约束、五档采样、统一速度窗与不均匀采样插值、噪声死区、阶梯 / 缓慢变化累计、反向起点、按时间退出、通知冷却 / 重试 / 去重、非法输入与观测重置。`RuntimeRegressionTests.swift` 包装运行时、消息通道、存储、配置同步、跨进程错误、保活开关及日志回传回归，并检查变频保留观察者与在途授权、采样间断重置和高速写入节流。
 
 无需 XCTest 的核心检查也使用同一批回归场景和生产文件：
 
@@ -90,9 +92,9 @@ python3 tools/run_core_checks.py --isolate-clt-headers
 4. 若取得新鲜且身份匹配的快照，会显示“监听正在采样（心跳有效）”；若查询无回复或超时，显示“保活已连接，实时状态暂不可读取”。后者属于观测信息缺失，不据此认定监听停止，也不伪造正在采样。握手仍核对协议版本、Bundle ID、build、App Group 和存储模式，心跳参考阈值为 `max(5 秒, 当前生效轮询间隔 × 3)`。
 5. 运行期间保存参数会先原子保存配置，再发送 `reloadConfiguration` Provider Message；本地通信模式携带完整配置。只有返回实际应用的 revision 才显示确认。无回复或超时则显示“配置已保存；本次运行是否已应用尚未确认，重新开启保活会使用新配置”，保留现有运行，不自动重启。参数非法、明确拒绝、身份不兼容或坏回复仍显示错误。每次消息最多两次尝试，单次超时 2 秒、间隔 0.2 秒；自动状态查询在连续无回复时按 30/60/120/300 秒退避，手动查询仍可立即进行。查询不会产生采样或心跳。
 6. 用“发送测试通知”检查权限与前台横幅，测试标题是 `AutoDarkShift.Test`，不修改正常目标历史或扩展通知计数。
-7. 用“导出运行日志”打开标准系统分享界面，保存 JSONL 文件。共享模式可直接导出监听日志；本地模式在 VPN 运行时通过系统消息或认证本机通道取回扩展日志，分块校验后原子保存到 App。关闭保活后仍可导出已同步记录；未同步的私有文件需重新开启保活后取回。缓存保留原采样时间。导出会保留实际取得的记录和失败标记。
+7. 用“导出运行与 Boost 日志”打开标准系统分享界面，保存运行与 Boost 两个 JSONL 文件。共享模式可直接导出监听日志；本地模式在 VPN 运行时通过系统消息或认证本机通道取回扩展日志，分块校验后原子保存到 App。关闭保活后仍可导出已同步记录；未同步的私有文件需重新开启保活后取回。缓存保留原采样时间。导出会保留实际取得的记录和失败标记。
 
-界面显示评分 S、亮度位置 A、累计变化 Δ、归一化速度 V、方向一致性 D、变化起点与目标频率。速度和动态退出时长使用单调时间；高速时在 `t − 0.20 秒` 处插值估计速度，不随轮询档位改变比较尺度。连续低于 `0.01 / 秒` 达 `0.30 秒` 后回到 1 Hz，清除速度窗口与方向记录，并保留本轮 baseline，让累计变化 Δ 在稳定阶段仍有效。
+界面显示 S、A、Δ、预测贡献 V、变化起点与目标频率。速度与退出时长使用单调时间；在 `t − 1 秒` 处插值，事件和轮询共同进入同一时间窗，完整窗口建立前不外推速度。连续低于 `0.01 / 秒` 达 `0.30 秒` 后恢复 1 Hz，保留速度窗口与变化基线，避免同一亮度台阶被重新当成新的变化。
 
 采样停顿超过 `max(2 秒, 当前生效轮询间隔 × 2)` 会记录 `sampling_gap` 并清除趋势；睡眠、唤醒、非法输入和配置更新也会重置。频率变化仅重设轮询定时器，亮度事件观察者和通知候选的采样代次保持连续。高速常规采样 / 评分日志最多每秒写入一次，档位变化和通知结果即时记录；不能用日志条数反推真实采样频率，需查看计数和实际间隔。
 
@@ -118,6 +120,8 @@ python3 tools/run_core_checks.py --isolate-clt-headers
 
 ## 状态、日志和诊断
 
+运行日志按秒节流并即时保存关键事件；`Monitoring/BoostTraceRecorder.swift` 按每次 Boost 分文件保存逐次输入与必要状态，恒定参数只写在开始记录。两路分别导出和缓存，互不占用轮转预算。共享模式直接读取，本地模式经独立流分页同步，停止 VPN 后可导出已同步记录。日志范围、字段、异常中断、独立轮转和真机操作见 [BOOST_TRACE_LOG.md](docs/BOOST_TRACE_LOG.md)。
+
 协议版本为 3，App 与扩展显式协商存储模式：
 
 | 模式 | 配置与状态 |
@@ -138,22 +142,23 @@ Provider Message 无回复时，首次故障增加即时回显探针并自动切
 | `submission-history.json` | 最近成功提交目标及完成时间，独立于运行快照持久化 |
 | `runtime-0.jsonl` 至 `runtime-3.jsonl` | 当前日志及三份轮转日志，每份最多 256 KiB，总计最多 1 MiB |
 | `polling-results-0.jsonl`、`polling-results-1.jsonl` | build 7/8 遗留测试结果，只读保留并随日志导出；当前版本不再创建或追加 |
-| `provider-diagnostics.jsonl` | App 保存的完整扩展日志副本，关闭 VPN 后可导出已同步记录 |
+| `boost-trace-<traceID>[.open].jsonl` | 每次 Boost 的紧凑逐次记录，使用独立轮转与容量预算 |
+| `provider-diagnostics.jsonl` / `provider-boost-traces.jsonl` | App 独立保存运行与 Boost 缓存，关闭 VPN 后可导出已同步记录 |
 | `store.lock` | 目录读写锁；共享模式下两个进程共同使用 |
 
 读写统一经过跨进程锁；JSON 快照采用原子替换。导出在共享读锁下复制日志和快照，不读取正在追加的半条记录；异常终止造成的日志末尾残片在下次追加前截断。导出副本包含设备通用型号、系统版本、App 版本与 build number。准确设备型号、调试器状态由测试者补录。时间戳为包含毫秒的 UTC ISO-8601 字符串。
 
 每个有效新样本在内存评估趋势评分。常规样本 / 评分日志与快照最多约每秒写入一次，档位变化和通知结果等关键事件仍即时持久化；计数包含实际收到的全部事件与轮询。当前版本不计算实验统计或产生实验结果。
 
-关键状态字段：`activePollInterval`、`phase`、`updatedAt`、`heartbeatAt`、`lastPollAt`、`lastPollInterval`、`sample.{brightness,rawValue,source,timestamp,sequence,actualInterval}`、`appliedConfiguration.revision`、`trend.{position,change,speed,direction,score,velocity,baseline,dynamicSampling,quietDuration}`、`pendingTarget`、`submission.{result,detail,identifier}`、`history.{target,submittedAt}`、`lastError`。
+关键状态字段：`activePollInterval`、`phase`、`updatedAt`、`heartbeatAt`、`lastPollAt`、`lastPollInterval`、`sample.{brightness,rawValue,source,timestamp,sequence,actualInterval}`、`appliedConfiguration.revision`、`trend.{position,change,speed,score,velocity,baseline,dynamicSampling,quietDuration}`、`pendingTarget`、`submission.{result,detail,identifier}`、`history.{target,submittedAt}`、`lastError`。
 
 `counters.eventCallbacks` 只统计系统观察者实际回调；`polls` 只统计定时读取；`samples` 含 initial / wake / event / poll；`notificationAttempts` 只统计正常通知实际调用 `add`，被权限阻止不算提交；`notificationSuccesses` 是 `add` 接受数；`extensionStarts` 为初始化独立监听状态的启动尝试数（为兼容旧数据保留字段名）。计数从上次快照恢复，启动失败也可能增加启动次数。
 
-监听日志包括 `monitor_start`、`monitor_ready`、`monitor_stop`、`monitor_sleep`、`monitor_wake`、`monitor_error`、`sample`、`sampling_gap`、`trend_score`、`sampling_rate_changed`、`invalid_brightness`、`configuration_applied`、`configuration_error`、`candidate_changed`、`notification_submit` 和 `notification_result`。VPN 生命周期、消息收发与初始化错误写入 Provider 本地诊断；App 操作、握手错误和测试通知写入 App 本地诊断。运行中通过 `exportDiagnosticPage` 固定快照、分块回传并缓存，内容含最多 8 KiB 的 Provider 生命周期日志；本地通信模式再附加最多 24 KiB 的扩展监听日志和旧版本保留的测试结果文件。每条都有 `timestamp`、`instanceID`、`event` 和 `fields`。
+运行日志包括监听生命周期、常规 `sample` / `trend_score`、`sampling_gap`、`sampling_rate_changed`、非法输入、配置、候选与通知结果。VPN、App 操作与通信错误也保留。两路导出各用固定快照与分页；正常分页不逐页写入重复的发送 / 接收 / 确认记录，改为每路完成时汇总字节数，失败即时记录。Boost 导出按整次 trace 连续排列，元数据指明样本数组顺序，省略重复字段和可重建分量；详细格式与预算见日志文档。
 
 如果 App Group 无法打开或读写探测失败，App 正常使用本地模式，日志记录 `storageFallbackReason`，并将选择写入 VPN 配置；该回退不是运行错误。若本地存储也失败，则明确报错。无回复/超时通过 `readbackAvailability=unavailable` 记录，不等同于服务 failed；身份不兼容、坏回复等仍保留错误。`ProjectError` 和通信错误通过 `NSError` 保留具体原因。无法从控制通道取回扩展诊断时，可用 macOS Console 连接设备，筛选 subsystem `AutoDarkShift` 查看系统日志。若持久化失败，扩展保留内存错误并在后续样本重试成功历史写入；失败跨重启时仍可能重复提交，需据错误字段验收。
 
-轮转日志不会无限保留；后台验收建议分段记录实际触发与切换结果。本地通信模式只取回有界尾部，覆盖不足时无法评价逐次采样连续性，应记为不可观测，不将缺少日志本身判为功能失败。文件保护采用 `completeUntilFirstUserAuthentication`，设备重启后未首次解锁时仍可能无法访问状态。App 仅在前台刷新，独立监听不依赖主 App 查询结果；后台实际响应以设备观察评价。
+轮转日志不会无限保留；后台验收建议分段记录实际触发与切换结果。本地通信模式只取回各路预算内的记录，覆盖不足时无法评价逐次采样连续性，应记为不可观测，不将缺少日志本身判为功能失败。文件保护采用 `completeUntilFirstUserAuthentication`，设备重启后未首次解锁时仍可能无法访问状态。App 仅在前台刷新，独立监听不依赖主 App 查询结果；后台实际响应以设备观察评价。
 
 ## 真机验收与外部快捷指令
 
@@ -176,7 +181,10 @@ Tests/                趋势模型 XCTest + 共享运行时/通信/存储回归�
 Config/               共用标识符、版本号、签名配置及本地覆盖示例
 AutoDarkShift.xcodeproj/  可直接打开的工程及两个共享 Scheme
 docs/                 架构、日志修复、验收操作表和实际验证记录
-tools/                工程生成/静态检查与独立核心回归运行器
+docs/models/          数学模型版本文档；v1 原文与 v2 分别保留
+tools/                工程生成、静态检查、核心回归、数据分析与解码工具
+local-data/           忽略提交的设备日志、清洗/分析数据和原始需求资料
+build/                忽略提交的验证输出与按 build 保留的 IPA/归档
 ```
 
 如需重建工程，可执行 `python3 tools/generate_xcode_project.py`。该脚本会覆盖工程和 Scheme；正常构建不需要运行它，手工修改工程后也不应未经确认重建。

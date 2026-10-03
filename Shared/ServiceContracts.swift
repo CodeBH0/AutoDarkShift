@@ -30,7 +30,11 @@ struct KeepAliveState: Equatable {
 @MainActor protocol MonitoringClient: AnyObject {
     func queryStatus() async throws -> MonitorReply
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply
-    func diagnostics() async throws -> String
+    func diagnostics(stream: MonitorLogStream) async throws -> String
+}
+
+extension MonitoringClient {
+    func diagnostics() async throws -> String { try await diagnostics(stream: .runtime) }
 }
 
 protocol MonitorStore: AnyObject {
@@ -41,6 +45,8 @@ protocol MonitorStore: AnyObject {
     func history() throws -> SubmissionHistory?
     func saveHistory(_ history: SubmissionHistory) throws
     func append(_ record: LogRecord) throws
+    func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws
+    func recoverBoostTraces(instanceID: String, at: Date) throws
 }
 
 struct BrightnessReading {
@@ -74,4 +80,5 @@ struct BrightnessReading {
     func wake()
     func reload(expectedRevision: String?) -> MonitorReply
     func statusReply() -> MonitorReply
+    func flushDiagnostics()
 }

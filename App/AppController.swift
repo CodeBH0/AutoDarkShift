@@ -22,7 +22,7 @@ final class AppController: ObservableObject {
     @Published private(set) var disconnectError: String?
     @Published private(set) var testFeedback: String?
     @Published private(set) var now = Date()
-    @Published var exportURL: URL?
+    @Published var exportURLs: [URL] = []
 
     private var store: SharedStore?
     private let storageMode: RuntimeStorageMode
@@ -36,6 +36,8 @@ final class AppController: ObservableObject {
     private var statusTask: Task<Void, Never>?
     private var diagnosticTask: Task<Void, Never>?
     private var lastDiagnosticSyncAt = Date.distantPast
+    private var diagnosticSyncErrors: [MonitorLogStream: String] = [:]
+    private var diagnosticSyncedAt: [MonitorLogStream: Date] = [:]
     private var sessionGeneration = UUID()
     private var readback = MonitoringReadback()
 
@@ -87,6 +89,8 @@ final class AppController: ObservableObject {
             diagnosticTask?.cancel()
             diagnosticTask = nil
             lastDiagnosticSyncAt = .distantPast
+            diagnosticSyncErrors.removeAll()
+            diagnosticSyncedAt.removeAll()
             runtimeConfirmed = false
             runtimeError = nil
             runtimeNotice = nil
@@ -222,12 +226,26 @@ final class AppController: ObservableObject {
 
     private func syncProviderDiagnostics() async throws {
         let token = sessionGeneration
-        let logs = try await monitoring.diagnostics()
-        guard token == sessionGeneration, !Task.isCancelled else { throw CancellationError() }
         guard let store else { throw ProjectError.message("App 日志缓存存储不可用。") }
-        try store.saveProviderDiagnostics(logs)
+        var failures: [String] = []
+        let streams: [MonitorLogStream] = storageMode == .appGroup ? [.runtime] : [.runtime, .boost]
+        for stream in streams {
+            do {
+                let logs = try await monitoring.diagnostics(stream: stream)
+                guard token == sessionGeneration, !Task.isCancelled else { throw CancellationError() }
+                try store.saveProviderDiagnostics(logs, stream: stream)
+                diagnosticSyncErrors.removeValue(forKey: stream)
+                diagnosticSyncedAt[stream] = Date()
+                record("provider_logs_cached", ["stream": stream.rawValue, "bytes": String(logs.utf8.count)])
+            } catch {
+                guard token == sessionGeneration, !Task.isCancelled else { throw CancellationError() }
+                diagnosticSyncErrors[stream] = describeError(error)
+                failures.append("\(stream.rawValue): \(describeError(error))")
+                record("provider_log_stream_sync_failed", ["stream": stream.rawValue, "error": describeError(error)])
+            }
+        }
         lastDiagnosticSyncAt = Date()
-        record("provider_logs_cached", ["bytes": String(logs.utf8.count)])
+        if !failures.isEmpty { throw ProjectError.message(failures.joined(separator: "; ")) }
     }
 
     private func acceptMonitorError(_ error: Error) {
@@ -324,10 +342,18 @@ final class AppController: ObservableObject {
         let previousAppError = appError
         run {
             self.record("export_requested", [:])
-            var syncFailure: String?
+            var syncFailures: [MonitorLogStream: String] = [:]
             if self.keepAliveState.phase.canMessage {
                 do { try await self.syncProviderDiagnostics() }
-                catch { syncFailure = describeError(error) }
+                catch {
+                    if error is CancellationError { throw error }
+                    syncFailures = self.diagnosticSyncErrors
+                    if syncFailures.isEmpty {
+                        for stream in self.storageMode == .appGroup ? [.runtime] : MonitorLogStream.allCases {
+                            syncFailures[stream] = describeError(error)
+                        }
+                    }
+                }
             }
             let metadata: [String: String] = [
                 "deviceModel": UIDevice.current.model, "systemVersion": UIDevice.current.systemVersion,
@@ -345,7 +371,9 @@ final class AppController: ObservableObject {
                 "storageError": self.storageError ?? "none", "appError": previousAppError ?? "none",
                 "disconnectError": self.disconnectError ?? "none", "debuggerDetached": "must be recorded by tester"
             ]
-            var data = try SharedJSON.encoder().encode(LogRecord(instanceID: "app", event: "export_metadata", fields: metadata))
+            var data = try SharedJSON.encoder().encode(LogRecord(instanceID: "app", event: "export_metadata", fields: metadata.merging(["stream": "runtime"]) { _, new in new }))
+            var boost = try SharedJSON.encoder().encode(LogRecord(instanceID: "app", event: "export_metadata", fields: metadata.merging(["stream": "boost"]) { _, new in new }))
+            boost.append(0x0A)
             data.append(0x0A)
             if let diagnostics = self.diagnosticsStore {
                 do { data.append(try diagnostics.exportData(metadata: ["scope": "app_diagnostics"])) }
@@ -355,22 +383,41 @@ final class AppController: ObservableObject {
             }
             do {
                 guard let store = self.store else { throw ProjectError.message(self.storageError ?? "运行存储不可用。") }
-                data.append(try store.exportData(metadata: ["scope": self.storageMode == .appGroup ? "shared_runtime" : "app_runtime_cache"]))
+                let scope = self.storageMode == .appGroup ? "shared_runtime" : "app_runtime_cache"
+                data.append(try store.exportData(metadata: ["scope": scope], stream: .runtime))
             } catch {
                 try self.appendExportEvent("shared_logs_unavailable", fields: ["error": describeError(error)], to: &data)
             }
             do {
-                if let store = self.store, try store.providerDiagnostics() != nil {
-                    try self.appendExportEvent("provider_logs_sync_state", fields: [
-                        "liveSync": syncFailure == nil && self.keepAliveState.phase.canMessage ? "success" : "not_current"], to: &data)
-                } else {
-                    try self.appendExportEvent("provider_logs_missing", fields: ["reason": "No provider-originated logs have been acquired; app-only export is incomplete."], to: &data)
-                }
+                guard let store = self.store else { throw ProjectError.message(self.storageError ?? "Boost 存储不可用。") }
+                boost.append(try store.exportData(metadata: ["scope": self.storageMode == .appGroup ? "shared_runtime" : "app_runtime_cache"],
+                    stream: .boost, includeProviderCache: self.storageMode == .localIPC))
             } catch {
-                try self.appendExportEvent("provider_logs_cache_unavailable", fields: ["error": describeError(error)], to: &data)
+                try self.appendExportEvent("boost_logs_unavailable", fields: ["error": describeError(error)], to: &boost)
             }
-            if let syncFailure { try self.appendExportEvent("provider_logs_unavailable", fields: ["error": syncFailure], to: &data) }
-            self.exportURL = try SharedStore.writeExport(data)
+            for stream in MonitorLogStream.allCases {
+                var stateData = Data()
+                if stream == .boost, self.storageMode == .appGroup {
+                    try self.appendExportEvent("boost_logs_sync_state", fields: ["source": "shared_runtime", "liveSync": "direct_read"], to: &stateData)
+                } else {
+                    do {
+                        if let store = self.store, try store.providerDiagnostics(stream: stream) != nil {
+                            try self.appendExportEvent("provider_logs_sync_state", fields: ["stream": stream.rawValue,
+                                "liveSync": self.keepAliveState.phase.canMessage && syncFailures[stream] == nil && self.diagnosticSyncedAt[stream] != nil ? "success" : "cached"], to: &stateData)
+                        } else {
+                            try self.appendExportEvent("provider_logs_missing", fields: ["stream": stream.rawValue,
+                                "reason": "No provider snapshot has been acquired for this stream."], to: &stateData)
+                        }
+                    } catch {
+                        try self.appendExportEvent("provider_logs_cache_unavailable", fields: ["stream": stream.rawValue, "error": describeError(error)], to: &stateData)
+                    }
+                }
+                if let failure = syncFailures[stream] {
+                    try self.appendExportEvent("provider_logs_unavailable", fields: ["stream": stream.rawValue, "error": failure], to: &stateData)
+                }
+                if stream == .runtime { data.append(stateData) } else { boost.append(stateData) }
+            }
+            self.exportURLs = try SharedStore.writeExports([.runtime: data, .boost: boost])
         }
     }
 

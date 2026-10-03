@@ -5,15 +5,17 @@ import Foundation
     private let runtime: () -> (any MonitoringRuntime)?
     private let identity: RuntimeIdentity
     private let diagnostics: () throws -> String
+    private let boostDiagnostics: () throws -> String
     private let configurationStore: (any MonitorStore)?
     private let pager: MonitorDiagnosticPager
 
     init(identity: RuntimeIdentity, runtime: @escaping () -> (any MonitoringRuntime)?,
          diagnostics: @escaping () throws -> String, configurationStore: (any MonitorStore)? = nil,
-         pager: MonitorDiagnosticPager? = nil) {
+         pager: MonitorDiagnosticPager? = nil, boostDiagnostics: @escaping () throws -> String = { "" }) {
         self.identity = identity
         self.runtime = runtime
         self.diagnostics = diagnostics
+        self.boostDiagnostics = boostDiagnostics
         self.configurationStore = configurationStore
         self.pager = pager ?? MonitorDiagnosticPager()
     }
@@ -22,10 +24,12 @@ import Foundation
         var reply: MonitorReply
         do {
             let request = try SharedJSON.decoder().decode(MonitorRequest.self, from: data)
+            let stream = request.exportStream ?? .runtime
+            let load = stream == .runtime ? diagnostics : boostDiagnostics
             if request.command == .exportDiagnostics {
-                reply = MonitorReply(success: true, message: "扩展诊断日志。", diagnostics: try diagnostics())
+                reply = MonitorReply(success: true, message: "扩展诊断日志。", diagnostics: try load(), exportStream: stream)
             } else if request.command == .exportDiagnosticPage {
-                reply = try pager.page(for: request, load: diagnostics)
+                reply = try pager.page(for: request, load: load)
             } else {
                 guard let monitor = runtime() else {
                     throw ProjectError.message("监听模块尚未初始化；请查看扩展启动诊断。")

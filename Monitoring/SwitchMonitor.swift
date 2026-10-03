@@ -10,10 +10,12 @@ final class SwitchMonitor: MonitoringRuntime {
     private let clock: () -> Date
     private let uptime: () -> TimeInterval
     private var machine: BrightnessTrendStateMachine
+    private var boostTrace: BoostTraceRecorder!
     private(set) var snapshot: RuntimeSnapshot
     private var observationGeneration = UUID()
     private var lastSampleAt: Date?
     private var lastPollAt: Date?
+    private var lastPollUptime: TimeInterval?
     private var lastSampleUptime: TimeInterval?
     private var lastSnapshotUptime: TimeInterval?
     private var historyNeedsSave = false
@@ -39,6 +41,13 @@ final class SwitchMonitor: MonitoringRuntime {
         counters.extensionStarts += 1
         snapshot = RuntimeSnapshot(instanceID: UUID().uuidString, history: history,
                                    appliedConfiguration: configuration, counters: counters)
+        try store.recoverBoostTraces(instanceID: snapshot.instanceID, at: clock())
+        boostTrace = BoostTraceRecorder(store: store, instanceID: snapshot.instanceID) { [weak self] detail in
+            guard let self else { return }
+            self.snapshot.lastError = "完整亮度日志写入失败：\(detail)"
+            self.record("boost_trace_error", ["detail": detail])
+            self.diagnostic(detail)
+        }
         record("monitor_start", ["revision": configuration.revision])
         try store.saveSnapshot(snapshot)
     }
@@ -74,6 +83,7 @@ final class SwitchMonitor: MonitoringRuntime {
         stopCallbacks.append(completion)
         guard snapshot.phase != .stopping else { return }
         stopFinalPhase = finalPhase
+        boostTrace.interrupt(reason: "stop:\(reason)", at: clock())
         removeSampling()
         machine.resetObservations()
         snapshot.phase = .stopping
@@ -86,6 +96,7 @@ final class SwitchMonitor: MonitoringRuntime {
 
     func sleep() {
         guard snapshot.phase == .running else { return }
+        boostTrace.interrupt(reason: "sleep", at: clock())
         removeSampling()
         machine.resetObservations()
         snapshot.phase = .sleeping
@@ -113,6 +124,7 @@ final class SwitchMonitor: MonitoringRuntime {
                 throw ProjectError.message("配置版本已变化，请重新保存。")
             }
             try machine.updateConfiguration(configuration)
+            boostTrace.interrupt(reason: "configuration_reload", at: clock())
             snapshot.appliedConfiguration = configuration
             record("configuration_applied", ["revision": configuration.revision])
             if snapshot.phase == .running { removeSampling(); installSampling() }
@@ -136,11 +148,17 @@ final class SwitchMonitor: MonitoringRuntime {
                              appliedRevision: snapshot.appliedConfiguration.revision, snapshot: snapshot)
     }
 
+    func flushDiagnostics() {
+        boostTrace.flush()
+        syncMachine()
+    }
+
     private func installSampling() {
         let interval = machine.pollInterval
         snapshot.activePollInterval = interval
         lastSampleAt = nil
         lastPollAt = nil
+        lastPollUptime = nil
         lastSampleUptime = nil
         lastSnapshotUptime = nil
         let generation = UUID()
@@ -171,14 +189,20 @@ final class SwitchMonitor: MonitoringRuntime {
         let interval = lastSampleAt.map { now.timeIntervalSince($0) }
         // A long scheduling gap does not establish continuous satisfaction of a condition.
         if let previous = lastSampleUptime, monotonicNow - previous > max(2, activeInterval * 2) {
+            boostTrace.interrupt(reason: "sampling_gap", at: now)
             machine.resetObservations()
             record("sampling_gap", ["seconds": String(monotonicNow - previous)])
         }
+        if let previous = lastSampleUptime, monotonicNow < previous {
+            boostTrace.interrupt(reason: "clock_regression", at: now)
+        }
+        let pollInterval = source == .poll ? lastPollUptime.map { monotonicNow - $0 } : nil
         lastSampleAt = now
         lastSampleUptime = monotonicNow
         if source == .poll {
             snapshot.lastPollInterval = lastPollAt.map { now.timeIntervalSince($0) }
             lastPollAt = now
+            lastPollUptime = monotonicNow
             snapshot.lastPollAt = now
         }
         // No app-supplied value, fallback value or brightness mutation is used here.
@@ -201,7 +225,13 @@ final class SwitchMonitor: MonitoringRuntime {
             if publish { record("invalid_brightness", ["rawValue": String(actual), "source": source.rawValue]) }
         }
         let previousTarget = machine.pendingTarget
+        let wasDynamic = machine.trend?.dynamicSampling ?? false
         let candidate = machine.sample(brightness: actual, at: now, uptime: monotonicNow, source: source)
+        boostTrace.consume(reading, sample: snapshot.sample!, uptime: monotonicNow,
+            previousInterval: activeInterval, nextInterval: machine.pollInterval, pollInterval: pollInterval,
+            trend: machine.trend, enteredBoost: !wasDynamic && machine.trend?.dynamicSampling == true,
+            configuration: machine.configuration, desired: machine.desiredTarget, pending: machine.pendingTarget,
+            candidate: candidate, inFlight: machine.inFlight)
         let samplingChanged = snapshot.activePollInterval != machine.pollInterval
         if samplingChanged {
             sampler.updateInterval(machine.pollInterval)
@@ -280,6 +310,7 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func syncMachine() {
+        snapshot.boostTraceIDs = boostTrace.activeIDs
         snapshot.history = machine.history
         snapshot.desiredTarget = machine.desiredTarget
         snapshot.pendingTarget = machine.pendingTarget
@@ -289,9 +320,8 @@ final class SwitchMonitor: MonitoringRuntime {
     private func trendFields() -> [String: String] {
         guard let trend = machine.trend else { return ["valid": "false"] }
         return ["A": String(trend.position), "delta": String(trend.change),
-                "V": String(trend.speed), "D": String(trend.direction), "S": String(trend.score),
+                "V": String(trend.speed), "S": String(trend.score),
                 "velocity": String(trend.velocity), "baseline": trend.baseline.map { String($0) } ?? "none",
-                "effectiveChanges": String(trend.effectiveChanges),
                 "dynamicSampling": String(trend.dynamicSampling), "quietDuration": String(trend.quietDuration),
                 "source": snapshot.sample?.source.rawValue ?? "none",
                 "sequence": String(snapshot.counters.samples)]

@@ -181,29 +181,35 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         logger.info("provider_message_entry bytes=\(messageData.count)")
         DispatchQueue.main.async {
             let response = self.handleControl(messageData, transport: "provider_message")
-            self.record("provider_message_replied", ["bytes": String(response?.count ?? 0)])
+            if (try? SharedJSON.decoder().decode(MonitorRequest.self, from: messageData).command) != .exportDiagnosticPage {
+                self.record("provider_message_replied", ["bytes": String(response?.count ?? 0)])
+            }
             completionHandler?(response)
         }
     }
 
     @MainActor private func handleControl(_ data: Data, transport: String) -> Data? {
-        record("monitor_message_received", ["bytes": String(data.count), "transport": transport])
+        let request = try? SharedJSON.decoder().decode(MonitorRequest.self, from: data)
+        if request?.command != .exportDiagnosticPage {
+            record("monitor_message_received", ["bytes": String(data.count), "transport": transport])
+        } else if request?.exportOffset == 0 {
+            record("provider_log_export_started", ["stream": (request?.exportStream ?? .runtime).rawValue, "transport": transport])
+        }
         let endpoint = MonitorControlEndpoint(identity: .installed(storageMode: storageMode), runtime: { self.monitor }, diagnostics: {
+            self.monitor?.flushDiagnostics()
             var result = ""
             if let store = self.diagnosticsStore { result += try store.diagnosticTail(maxBytes: 8 * 1024) }
-            if let store = self.runtimeStore {
-                if let snapshot = try store.snapshot() {
-                    var snapshotData = try SharedJSON.encoder().encode(snapshot)
-                    let object = try JSONSerialization.jsonObject(with: snapshotData)
-                    snapshotData = try JSONSerialization.data(withJSONObject: ["event": "provider_export_snapshot", "data": object], options: [.sortedKeys])
-                    result += String(decoding: snapshotData, as: UTF8.self) + "\n"
-                }
-                result += try store.diagnosticTail(maxBytes: 24 * 1024)
-                result += try store.legacyDiagnostics()
+            if self.storageMode == .localIPC, let store = self.runtimeStore {
+                result += String(decoding: try store.exportData(metadata: ["scope": "provider_runtime"],
+                    stream: .runtime, includeProviderCache: false), as: UTF8.self)
             }
             guard !result.isEmpty else { throw ProjectError.message("扩展日志存储不可用。") }
             return result
-        }, configurationStore: runtimeStore, pager: diagnosticPager)
+        }, configurationStore: runtimeStore, pager: diagnosticPager, boostDiagnostics: {
+            self.monitor?.flushDiagnostics()
+            guard let store = self.runtimeStore else { throw ProjectError.message("扩展 Boost 日志存储不可用。") }
+            return try store.boostTraceDiagnostics()
+        })
         return endpoint.handle(data)
     }
 }

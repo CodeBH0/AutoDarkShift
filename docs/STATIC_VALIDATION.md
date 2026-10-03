@@ -1,10 +1,90 @@
-# 验证记录（当前 1.0.1 / build 11）
+# 验证记录（当前 1.0.1 / build 13）
+
+## 2026-10-03 数学模型 v2、双日志与目录整理（build 13）
+
+[模型 v2](models/MathModel-v2.md) 独立新增，v1 原文移动至 `docs/models/MathModel-v1.md`，SHA-256 与原文件及此前提交一致。删除 D，V 改为受幅度和物理空间限制的预测贡献；同向 Δ 跨采样退出与停留保留，峰谷累计反向 0.010 后重建起点，统一一秒速度窗。运行 / Boost 各自写入、轮转、分页、缓存和导出；紧凑样本保留逐行评分核验所需原状态，并支持旧格式解码。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程静态检查 / 空白检查 | 通过：151 个工程对象、38 个工程文件，两个模型文档和目标边界；`git diff --check` 通过 |
+| core checks | 通过：57 项场景，实际允许 127.0.0.1 监听与连接，含双流回传和离线缓存 |
+| Swift Package XCTest | 通过：35 个方法，0 失败；34 项模型测试及包装 57 项运行时场景的测试，运行于 macOS |
+| 实测解码 / 生产模型回放 | 通过：旧导出 196 行 / 8 trace，105 独立观测、91 重复行；精确 uptime 回放频率变更 26→21、段内基线变更 8→0，缺口显式重置 |
+| iPhone Release 编译、归档与 IPA | 通过：两个组件均为 1.0.1 / build 13、arm64、iPhoneOS 18.2 SDK / 最低 iOS 17 |
+| IPA 独立核对 | 通过：标识符、Packet Tunnel / App Group 权限、占位签名、ZIP / SHA-256；508999 字节，SHA-256 `83dc9d10c2319cb222a901734318e3e18aae80026ef61ae16967b192500f5b48` |
+| 旧文件与提交边界 | v1 原文校验不变；原有八份 IPA 校验不变；指定 build 8 实验归档删除，设备输入移至忽略的 `local-data/` |
+| 真实证书签名、安装 / 真机行为 | 未执行，由用户使用本次 IPA 重签并按 [验收表](DEVICE_ACCEPTANCE.md) 复测 |
+
+运行时验证包含普通在途通知不随评分回落取消、生命周期取消与冷却、全部真实样本与事件来源、记录稳定结束/中断、旧混合缓存迁移、单流失败保留旧数据、未获取 Boost 与成功空记录区分、紧凑生产编码→Python 解码还原、独立分享文件及分页快照内存回收。数学测试覆盖慢漂移、死区、预测约束、反向门槛、统一时间窗与旧快照 schema；新快照为 schema 3，旧 V 的含义在界面中标明。
+
+回放沿用旧录制采样网格、可见首读数冷启动和立即接受通知的假设，无环境/外观标签。上述计数不是新定时器的真机达成率，也不是正确率或真实反应时间结论。设备日志缺失或读回超时仍属于可观测性问题。
+
+首轮完整测试已通过；最后增加空 Boost 缓存语义断言后复验，SwiftPM 复用测试目录出现 `unknown build description`，改用全新 `CoreTestsDeliveryFresh` 及配套缓存后 35 项再次全部通过，没有跳过失败项或修改系统工具链。IPA 打包仅出现 locale 警告，未影响编译、占位签名及完整性核对。
+
+本地记录：`build/validation-model-v2/core-checks-delivery.log`、`xctest-delivery-fresh.log`、`static-delivery.log`、`package-ipa.log`；IPA 核对在 `build/build13/ipa-verification.json`，编译日志与归档分别为 `build/build13/unsigned-build.log`、`build/build13/AutoDarkShift.xcarchive`。原始输入和回放报告位于 `local-data/`，以上过程文件均不提交。
+
+下列为本轮实际命令。再次复测应换用尚未存在的一组测试 / 缓存目录；打包脚本会继续消耗新的 build，不覆盖 build 13：
+
+```sh
+export DEVELOPER_DIR=/Users/codebh0/Downloads/Xcode.app/Contents/Developer
+python3 tools/validate_project.py
+python3 tools/run_core_checks.py
+CLANG_MODULE_CACHE_PATH="$PWD/build/validation-model-v2/DeliveryModuleCache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/build/validation-model-v2/DeliveryModuleCache" \
+swift test --scratch-path build/validation-model-v2/CoreTestsDeliveryFresh \
+  --cache-path build/validation-model-v2/DeliveryPackageCache \
+  --config-path build/validation-model-v2/DeliveryPackageConfig \
+  --security-path build/validation-model-v2/DeliveryPackageSecurity --disable-sandbox \
+  -Xswiftc -module-cache-path -Xswiftc "$PWD/build/validation-model-v2/DeliveryModuleCache"
+bash tools/package_ipa.sh
+git diff --check
+```
+
+以下为历史验证，代表对应 build 当时的行为与执行范围。
+
+
+## 2026-10-03 第二种完整亮度日志（build 12）
+
+由归档 Boost 测试的独立结果存储与导出方式改造，新增 `BoostTraceRecorder` 并接入正式动态采样入口。前置 5 秒上下文与后续每次读取、评分参数和频率结果单独记录，连续 2 秒亮度波动不超过 0.005 且新轮询确认后完成，恢复 1 Hz 不结束。完成范围和真机操作见 [BOOST_TRACE_LOG.md](BOOST_TRACE_LOG.md)。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程静态检查 | 通过：151 个工程对象、38 个工程文件；新模块进入 App / 扩展 / 核心测试，历史归档校验通过 |
+| core checks | 通过：54 项场景，包括真实 127.0.0.1 TCP 回传与离线导出 |
+| Swift Package XCTest | 通过：30 个方法，0 失败；29 项模型测试及包装 54 项运行时场景的测试 |
+| iPhone arm64 Release 编译、归档、IPA | 通过：主 App 与扩展均为 1.0.1 / build 12；最低 iOS 17、权限、占位签名、ZIP / SHA-256 校验通过 |
+| build 11 保留 | 原 IPA 校验值保持不变，未覆盖 |
+| git diff --check | 通过 |
+| 真实证书签名、安装及设备验收 | 未执行，由用户进行 |
+
+新增回归覆盖触发前五秒 1 Hz 上下文、高频全部读数与 A / Δ / V / D / S、恢复 1 Hz 后缓慢变化、独立稳定判定、事件造成的短暂变化、连续 Boost 的重叠记录、生命周期与非法输入中断、写入失败不影响正式通知、独立轮转与半行修复、超过单帧容量的分页缓存、真实本机 TCP 同步第二种日志及离线导出。普通日志仍节流，旧实验与原始归档校验不变。
+
+首次受限 core checks 的 TCP 监听被沙箱拒绝；最终在允许本机通信的环境完整运行通过。SwiftPM 复用测试路径时出现 `unknown build description`，使用全新 `BoostTraceTestsFinal` 和配套缓存完成最终 XCTest，没有跳过失败项。
+
+本地记录为 `build/core-checks-boost-trace-final.log`、`build/core-xctest-boost-trace-final.log`、`build/static-validation-build12.log`、`build/package-ipa-build12.log` 与 `build/build12/unsigned-build.log`。包内容独立核对保存在 `build/build12/ipa-verification.json`；安装包为 `build/AutoDarkShift-1.0.1-build12-resign.ipa`，仍需证书重签。
+
+本次 Swift Package 验证使用完整 Xcode 与新目录：
+
+```sh
+export DEVELOPER_DIR=/Users/codebh0/Downloads/Xcode.app/Contents/Developer
+python3 tools/validate_project.py
+python3 tools/run_core_checks.py
+CLANG_MODULE_CACHE_PATH="$PWD/build/BoostTraceFinalModuleCache" \
+SWIFTPM_MODULECACHE_OVERRIDE="$PWD/build/BoostTraceFinalModuleCache" \
+swift test --scratch-path build/BoostTraceTestsFinal --cache-path build/BoostTraceFinalPackageCache \
+  --config-path build/BoostTraceFinalPackageConfig --security-path build/BoostTraceFinalPackageSecurity \
+  --disable-sandbox -Xswiftc -module-cache-path -Xswiftc "$PWD/build/BoostTraceFinalModuleCache"
+bash tools/package_ipa.sh
+git diff --check
+```
+
+打包脚本每次执行会继续递增 build，复现时不会覆盖 build 12。
 
 ## 2026-10-02 模型实现历史验证（build 10）
 
-本版本按 `MathModel v1.md` 第 1–4 章与第 8 章开发评分和动态采样。环境为 macOS x86_64，使用下载目录中的完整 Xcode / iPhoneOS SDK，Swift 5 语言模式；没有修改系统工具链或归档中的旧版本源码。
+本版本按 `docs/models/MathModel-v1.md` 第 1–4 章与第 8 章开发评分和动态采样。环境为 macOS x86_64，使用下载目录中的完整 Xcode / iPhoneOS SDK，Swift 5 语言模式；没有修改系统工具链或归档中的旧版本源码。
 
-本页记录 2026-10-02 完整本地归档的验证结果。2026-10-03 仓库整理后，历史源码、原始需求文档与产物不再随 Git 提交；新检出的静态检查只要求当前工程和归档元数据齐全，历史文件存在时仍检查原校验值。
+本页记录 2026-10-02 完整本地归档的验证结果。2026-10-03 仓库整理后，历史源码、原始需求文档与产物不再随 Git 提交；本轮已按要求删除 build 8 本地归档；当前静态检查不再依赖归档元数据，历史校验结果只代表当时执行范围。
 
 以下 build 10 结果为历史执行记录。原安装包后来被同编号打包覆盖；按用户要求已删除覆盖后的安装包、校验文件、未按 build 分目录的归档、缓存、权限文件和编译日志，未尝试恢复 build 10。当前可用产物与验证结果见本页后续 build 11 记录。
 

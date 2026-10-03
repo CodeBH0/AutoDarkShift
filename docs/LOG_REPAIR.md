@@ -1,8 +1,8 @@
 # 日志分析与状态判定
 
-2026-10-03 仓库整理后，下述原始 JSONL 输入只保留在本地并由 Git 忽略，本文的历史分析继续提交。新检出不会包含这些设备日志；历史输入可从原始提交 `0cb2f8c` 恢复。
+2026-10-03 仓库整理后，下述原始 JSONL 输入统一保存于 `local-data/device-logs/`，只保留在本地并由 Git 忽略，本文的历史分析继续提交。新检出不会包含这些设备日志；历史输入可从原始提交 `0cb2f8c` 恢复。
 
-build 8 的最新输入为 `build/AutoDarkShift-13E966D5-3B87-413F-9447-128FD4A0717C.jsonl`。45 次 Provider Message 全部空回复，其中含测试开始与日志导出，不能确认轮询测试已启动。build 8 增加即时回显探针、本机认证备用通道、分页回传与 App 持久化缓存，见 [LOG_TRANSPORT.md](LOG_TRANSPORT.md)。以下保留 build 6 的历史分析；“观测缺失不等于监听停止”仍然成立，但日志回传本身必须修复，不能仅修改提示。
+build 8 的最新输入为 `local-data/device-logs/AutoDarkShift-13E966D5-3B87-413F-9447-128FD4A0717C.jsonl`。45 次 Provider Message 全部空回复，其中含测试开始与日志导出，不能确认轮询测试已启动。build 8 增加即时回显探针、本机认证备用通道、分页回传与 App 持久化缓存，见 [LOG_TRANSPORT.md](LOG_TRANSPORT.md)。以下保留 build 6 的历史分析；“观测缺失不等于监听停止”仍然成立，但日志回传本身必须修复，不能仅修改提示。
 
 最新输入：`AutoDarkShift-2D998352-F741-416C-824B-6A89A45CD2FD.jsonl`，build 5 / 协议 3 / local-ipc-v1。三个原始 JSONL 文件均保留不变。
 
@@ -41,7 +41,7 @@ build 6 已完成本机核心测试与 iPhone 构建；具体验证范围见 [ST
 
 ## build 5 的存储与单开关修复（历史）
 
-本轮输入：项目根目录的 `AutoDarkShift-18DF7D4B-8DEC-4D9B-A248-08F47E11221E.jsonl`。原始日志保留不变。
+本轮输入：`local-data/device-logs/AutoDarkShift-18DF7D4B-8DEC-4D9B-A248-08F47E11221E.jsonl`。原始日志保留不变。
 
 ### 本次启动失败
 

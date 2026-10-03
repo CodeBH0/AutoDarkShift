@@ -28,9 +28,14 @@ Config/Local.xcconfig
 *.mobileprovision
 *.provisionprofile
 
-# Device exports, validation logs and retired local snapshots
-AutoDarkShift-*.jsonl
+# Local inputs, device exports and analysis intermediates
+/local-data/
+*.jsonl
+*.csv
+*.tsv
+*.trace
 *.log
+# Retired local snapshots; recover source from Git history when needed
 /archive/*/artifacts/
 /archive/*/source/
 /WORK_VPN_BRIGHTNESS.md

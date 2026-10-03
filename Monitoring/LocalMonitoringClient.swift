@@ -5,17 +5,22 @@ import Foundation
     private let runtime: any MonitoringRuntime
     private let store: any MonitorStore
     private let exportDiagnostics: () throws -> String
+    private let exportBoost: () throws -> String
 
     init(runtime: any MonitoringRuntime, store: any MonitorStore,
-         diagnostics: @escaping () throws -> String) {
+         diagnostics: @escaping () throws -> String, boostDiagnostics: @escaping () throws -> String = { "" }) {
         self.runtime = runtime
         self.store = store
         self.exportDiagnostics = diagnostics
+        self.exportBoost = boostDiagnostics
     }
     func queryStatus() async throws -> MonitorReply { runtime.statusReply() }
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
         try store.saveConfiguration(configuration)
         return runtime.reload(expectedRevision: configuration.revision)
     }
-    func diagnostics() async throws -> String { try exportDiagnostics() }
+    func diagnostics(stream: MonitorLogStream) async throws -> String {
+        runtime.flushDiagnostics()
+        return try stream == .runtime ? exportDiagnostics() : exportBoost()
+    }
 }

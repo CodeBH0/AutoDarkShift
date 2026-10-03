@@ -12,31 +12,50 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
                         _ seconds: Double) -> NotificationCandidate? {
         machine.sample(brightness: brightness, at: time(seconds), uptime: seconds)
     }
-    private func score(_ brightness: Double, baseline: Double? = nil, velocity: Double = 0,
-                       directions: [Int] = []) -> BrightnessTrendSnapshot {
+    private func score(_ brightness: Double, baseline: Double? = nil, velocity: Double = 0) -> BrightnessTrendSnapshot {
         BrightnessTrendModel.score(brightness: brightness, baseline: baseline, velocity: velocity,
-            directions: directions, dynamic: baseline != nil, quietDuration: 0)
+            dynamic: false, quietDuration: 0)
     }
 
-    func testPositionAndComponentClipping() {
+    func testPositionClippingAndNoMotionScore() {
         XCTAssertEqual(score(0.10).position, -1, accuracy: 1e-12)
         XCTAssertEqual(score(0.25).position, 0)
         XCTAssertEqual(score(0.40).position, 1, accuracy: 1e-12)
-        let upper = score(1, baseline: 0, velocity: 20, directions: [1, 1])
-        let lower = score(0, baseline: 1, velocity: -20, directions: [-1, -1])
-        XCTAssertEqual(upper.score, 1, accuracy: 1e-12)
-        XCTAssertEqual(lower.score, -1, accuracy: 1e-12)
-        XCTAssertEqual(upper.change, 1)
-        XCTAssertEqual(lower.speed, -1)
+        XCTAssertEqual(score(1).score, 0)
+        XCTAssertEqual(score(0).score, 0)
     }
 
-    func testWeightedScoreAndDirectionFraction() {
-        let value = score(0.28, baseline: 0.25, velocity: 0.05, directions: [1, 1, -1])
+    func testVIsBoundedPredictionRatherThanNormalizedSpeed() {
+        let value = score(0.28, baseline: 0.25, velocity: 0.05)
         XCTAssertEqual(value.position, 0.2, accuracy: 1e-12)
-        XCTAssertEqual(value.change, 0.2, accuracy: 1e-12)
-        XCTAssertEqual(value.speed, 0.5)
-        XCTAssertEqual(value.direction, 1.0 / 3, accuracy: 1e-12)
-        XCTAssertEqual(value.score, 0.3033333333333333, accuracy: 1e-12)
+        XCTAssertEqual(value.change, 0.025 / 0.145, accuracy: 1e-12)
+        XCTAssertEqual(value.speed, 0.025 / 0.15, accuracy: 1e-12)
+        XCTAssertEqual(value.projectedBrightness!, 0.305, accuracy: 1e-12)
+        XCTAssertEqual(value.score, 0.25 * 0.2 + 0.55 * 0.025 / 0.145 + 0.20 * 0.025 / 0.15, accuracy: 1e-12)
+        let tiny = score(0.256, baseline: 0.25, velocity: 100)
+        XCTAssertEqual(tiny.speed, 0.006 / 0.15, accuracy: 1e-12)
+        XCTAssertNil(BrightnessTrendModel.target(for: tiny.score), "A very fast tiny movement cannot independently switch modes")
+    }
+
+    func testPredictionRespectsHeadroomAndExcursionDirection() {
+        let upper = score(0.99, baseline: 0.8, velocity: 10)
+        XCTAssertEqual(upper.projectedBrightness, 1)
+        XCTAssertEqual(upper.speed, 0.01 / 0.15, accuracy: 1e-12)
+        let lower = score(0.01, baseline: 0.2, velocity: -10)
+        XCTAssertEqual(lower.projectedBrightness, 0)
+        XCTAssertEqual(lower.speed, -0.01 / 0.15, accuracy: 1e-12)
+        XCTAssertEqual(score(0.3, baseline: 0.1, velocity: -1).speed, 0)
+        XCTAssertEqual(score(0.2, baseline: 0.4, velocity: 1).speed, 0)
+    }
+
+    func testNoiseDeadbandAndAlignedPositionCannotRequestOppositeMode() {
+        XCTAssertEqual(score(0.8, baseline: 0.8, velocity: 1).score, 0)
+        XCTAssertEqual(score(0.804, baseline: 0.8, velocity: 1).score, 0)
+        XCTAssertEqual(score(0.90, baseline: 0.95, velocity: -0.05).position, 1)
+        XCTAssertLessThan(score(0.90, baseline: 0.95, velocity: -0.05).score, 0)
+        XCTAssertGreaterThan(score(0.05, baseline: 0, velocity: 0.05).score, 0)
+        XCTAssertEqual(BrightnessTrendModel.target(for: score(0.75, baseline: 0.9).score), .dark)
+        XCTAssertEqual(BrightnessTrendModel.target(for: score(0.25, baseline: 0.1).score), .light)
     }
 
     func testInclusiveScoreBoundariesAndHoldBand() {
@@ -54,39 +73,63 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
             XCTAssertNil(machine.desiredTarget)
             XCTAssertEqual(machine.pollInterval, 1)
             XCTAssertEqual(machine.trend?.change, 0)
+            XCTAssertEqual(machine.trend?.score, 0)
         }
     }
 
-    func testTriggerUsesPreviousReadingAsBaseline() throws {
+    func testTriggerUsesExcursionOriginAndRetainsVelocityWindow() throws {
         var machine = try engine()
         _ = sample(&machine, 0.20, 0)
         XCTAssertNil(sample(&machine, 0.22, 1))
         XCTAssertEqual(machine.trend?.baseline, 0.20)
         XCTAssertEqual(machine.trend!.velocity, 0.02, accuracy: 1e-12)
         XCTAssertEqual(machine.pollInterval, 0.1)
-        XCTAssertEqual(machine.trend?.direction, 1)
+        _ = sample(&machine, 0.22, 1.1)
+        XCTAssertEqual(machine.trend!.velocity, 0.018, accuracy: 1e-12)
+        XCTAssertTrue(machine.trend!.dynamicSampling)
     }
 
-    func testSubTriggerSpeedStaysAtOneHz() throws {
+    func testSubTriggerSlowMotionAccumulatesAndCanSwitch() throws {
         var machine = try engine()
-        _ = sample(&machine, 0.25, 0)
-        _ = sample(&machine, 0.26, 1)
-        XCTAssertEqual(machine.pollInterval, 1)
-        XCTAssertNil(machine.trend?.baseline)
+        _ = sample(&machine, 0.10, 0)
+        var candidate: NotificationCandidate?
+        for i in 1...30 {
+            candidate = sample(&machine, 0.10 + Double(i) * 0.005, Double(i)) ?? candidate
+            XCTAssertEqual(machine.pollInterval, 1)
+        }
+        XCTAssertEqual(candidate?.target, .light)
+        XCTAssertEqual(machine.trend?.baseline, 0.10)
+        XCTAssertEqual(machine.trend!.change, 1, accuracy: 1e-12)
     }
 
-    func testEventBurstCannotShortenNormalOneSecondVelocityScale() throws {
+    func testSubNoiseStepsAccumulateAgainstAcceptedReading() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.10, 0)
+        for i in 1...75 { _ = sample(&machine, 0.10 + Double(i) * 0.002, Double(i)) }
+        XCTAssertEqual(machine.trend?.baseline, 0.10)
+        XCTAssertGreaterThan(machine.trend!.change, 0.95)
+        XCTAssertEqual(machine.desiredTarget, .light)
+        XCTAssertEqual(machine.pollInterval, 1)
+    }
+
+    func testPartialWindowProducesZeroVelocityEvenWithEventBurst() throws {
         var machine = try engine()
         _ = sample(&machine, 0.20, 0)
-        XCTAssertNil(machine.sample(brightness: 0.30, at: time(0.001), uptime: 0.001, source: .event))
-        XCTAssertEqual(machine.pollInterval, 1)
+        _ = machine.sample(brightness: 0.30, at: time(0.001), uptime: 0.001, source: .event)
+        _ = sample(&machine, 0.22, 0.999)
         XCTAssertEqual(machine.trend?.velocity, 0)
-        XCTAssertNil(sample(&machine, 0.22, 1))
+        XCTAssertEqual(machine.pollInterval, 1)
+        _ = sample(&machine, 0.22, 1)
         XCTAssertEqual(machine.trend!.velocity, 0.02, accuracy: 1e-12)
-        XCTAssertEqual(machine.trend?.baseline, 0.20)
-        XCTAssertEqual(machine.trend?.direction, 1)
-        _ = machine.sample(brightness: 0.23, at: time(1.1), uptime: 1.1, source: .event)
-        XCTAssertEqual(machine.trend!.velocity, 0.10, accuracy: 1e-12)
+    }
+
+    func testSameTimeEventAndPollAreOneObservation() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        _ = machine.sample(brightness: 0.25, at: time(1), uptime: 1, source: .event)
+        let snapshot = machine.trend
+        _ = sample(&machine, 0.9, 1)
+        XCTAssertEqual(machine.trend, snapshot)
     }
 
     func testDynamicRateBoundariesAreSymmetric() {
@@ -97,83 +140,80 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         }
     }
 
-    func testHighRateUsesTimeWindowRatherThanAdjacentJump() throws {
+    func testUniformVelocityAtEveryRateAndIrregularInterpolation() throws {
+        for rate in [1.0, 10, 30, 60, 120] {
+            var machine = try engine()
+            _ = sample(&machine, 0.2, 0)
+            for i in 1...Int(2 * rate) { _ = sample(&machine, 0.2 + 0.06 * Double(i) / rate, Double(i) / rate) }
+            XCTAssertEqual(machine.trend!.velocity, 0.06, accuracy: 0.006)
+            XCTAssertEqual(machine.trend?.baseline, 0.2)
+        }
         var machine = try engine()
-        _ = sample(&machine, 0.20, 0)
-        _ = sample(&machine, 0.23, 1)
-        for i in 1...24 { _ = sample(&machine, 0.23, 1 + Double(i) / 120) }
-        _ = sample(&machine, 0.24, 1.21)
-        XCTAssertEqual(machine.trend!.velocity, 0.05, accuracy: 1e-10)
-        XCTAssertEqual(machine.pollInterval, 1.0 / 30)
+        _ = sample(&machine, 0.2, 0)
+        _ = sample(&machine, 0.25, 1)
+        _ = sample(&machine, 0.26, 1.1)
+        _ = sample(&machine, 0.28, 1.7)
+        XCTAssertEqual(machine.trend!.velocity, 0.045, accuracy: 1e-12)
+        _ = sample(&machine, 0.30, 2.4)
+        XCTAssertEqual(machine.trend!.velocity, 0.03, accuracy: 1e-12)
     }
 
-    func testWindowInterpolatesIrregularSamplesAcrossRateChanges() throws {
-        var machine = try engine()
-        _ = sample(&machine, 0.20, 0)
-        _ = sample(&machine, 0.22, 1)
-        _ = sample(&machine, 0.23, 1.10)
-        _ = sample(&machine, 0.239, 1.19)
-        _ = sample(&machine, 0.253, 1.33)
-        XCTAssertEqual(machine.trend!.velocity, 0.10, accuracy: 1e-10)
-        XCTAssertEqual(machine.trend!.baseline!, 0.20)
-    }
-
-    func testNoiseDoesNotEnterDirectionStatistics() throws {
+    func testNoiseDoesNotMoveFilteredBrightnessOrBaseline() throws {
         var machine = try engine()
         _ = sample(&machine, 0.25, 0)
-        _ = sample(&machine, 0.27, 1)
-        _ = sample(&machine, 0.271, 1.05)
-        _ = sample(&machine, 0.270, 1.10)
-        XCTAssertEqual(machine.trend?.effectiveChanges, 1)
-        XCTAssertEqual(machine.trend?.direction, 1)
+        for i in 1...20 { _ = sample(&machine, i % 2 == 0 ? 0.254 : 0.246, Double(i) / 10) }
+        XCTAssertEqual(machine.trend?.filteredBrightness, 0.25)
+        XCTAssertNil(machine.trend?.baseline)
+        XCTAssertEqual(machine.trend?.score, 0)
     }
 
-    func testDirectionHistoryContainsLastTenEffectiveChanges() throws {
+    func testReversalRequiresCumulativeExcursionFromPeak() throws {
         var machine = try engine()
-        _ = sample(&machine, 0.30, 0)
-        _ = sample(&machine, 0.40, 1)
-        for i in 1...10 { _ = sample(&machine, 0.40 - 0.01 * Double(i), 1 + 0.05 * Double(i)) }
-        XCTAssertEqual(machine.trend?.effectiveChanges, 10)
-        XCTAssertEqual(machine.trend?.direction, -1)
+        _ = sample(&machine, 0.2, 0)
+        _ = sample(&machine, 0.3, 1)
+        _ = sample(&machine, 0.295, 1.1)
+        _ = sample(&machine, 0.292, 1.2)
+        XCTAssertEqual(machine.trend?.baseline, 0.2, "A small reverse fluctuation must preserve the origin")
+        _ = sample(&machine, 0.29, 1.3)
+        XCTAssertEqual(machine.trend?.baseline, 0.3)
+        XCTAssertLessThan(machine.trend!.change, 0)
+        _ = sample(&machine, 0.25, 1.4)
+        XCTAssertEqual(machine.trend?.baseline, 0.3)
     }
 
-    func testExitUsesElapsedTimeAtEveryDynamicRate() throws {
+    func testExitUsesElapsedTimeAndRetainsBaselineAtEveryRate() throws {
         for rate in [10.0, 30, 60, 120] {
             var machine = try engine()
             _ = sample(&machine, 0.25, 0)
             _ = sample(&machine, 0.27, 1)
-            _ = sample(&machine, 0.27, 1.01)
+            _ = sample(&machine, 0.27, 2)
             for i in 1...Int(rate * 0.30) - 1 {
-                _ = sample(&machine, 0.27, 1.01 + Double(i) / rate)
+                _ = sample(&machine, 0.27, 2 + Double(i) / rate)
                 XCTAssertTrue(machine.trend!.dynamicSampling)
             }
-            _ = sample(&machine, 0.27, 1.31)
+            _ = sample(&machine, 0.27, 2.30)
             XCTAssertFalse(machine.trend!.dynamicSampling)
             XCTAssertEqual(machine.pollInterval, 1)
             XCTAssertEqual(machine.trend?.baseline, 0.25)
-            XCTAssertEqual(machine.trend!.change, (0.27 - 0.25) / 0.15, accuracy: 1e-12)
-            XCTAssertEqual(machine.trend?.effectiveChanges, 0)
+            XCTAssertEqual(machine.trend!.change, 0.015 / 0.145, accuracy: 1e-12)
         }
     }
 
-    func testCumulativeChangeSurvivesExitAndNormalPollingInBothDirections() throws {
-        for baseline in [0.10, 0.40] {
+    func testCumulativeChangeSurvivesExitPlateausAndNewSameDirectionSteps() throws {
+        for ascending in [true, false] {
             var machine = try engine()
-            _ = sample(&machine, baseline, 0)
+            let origin = ascending ? 0.10 : 0.40
+            _ = sample(&machine, origin, 0)
             let candidate = try XCTUnwrap(sample(&machine, 0.25, 1))
             machine.complete(candidate, result: .success, at: time(1))
-            _ = sample(&machine, 0.25, 1.10)
-            _ = sample(&machine, 0.25, 1.40)
+            _ = sample(&machine, 0.25, 2)
+            _ = sample(&machine, 0.25, 2.4)
             XCTAssertFalse(machine.trend!.dynamicSampling)
-            XCTAssertEqual(machine.pollInterval, 1)
-            XCTAssertEqual(machine.trend?.baseline, baseline)
-            XCTAssertEqual(machine.trend!.change, baseline < 0.25 ? 1 : -1, accuracy: 1e-12)
-            XCTAssertNil(sample(&machine, 0.25, 2.40))
-            XCTAssertEqual(machine.trend?.baseline, baseline)
-            XCTAssertEqual(machine.trend!.change, baseline < 0.25 ? 1 : -1, accuracy: 1e-12)
-            XCTAssertEqual(machine.trend!.score, baseline < 0.25 ? 0.35 : -0.35, accuracy: 1e-12)
-            _ = sample(&machine, 0.30, 3.40)
-            XCTAssertEqual(machine.trend?.baseline, 0.25, "A newly detected change establishes its own baseline")
+            _ = sample(&machine, 0.25, 10)
+            XCTAssertEqual(machine.trend?.baseline, origin)
+            XCTAssertEqual(machine.trend!.score, ascending ? 0.55 : -0.55, accuracy: 1e-12)
+            _ = sample(&machine, ascending ? 0.30 : 0.20, 11)
+            XCTAssertEqual(machine.trend?.baseline, origin)
         }
     }
 
@@ -181,14 +221,35 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         var machine = try engine()
         _ = sample(&machine, 0.20, 0)
         _ = sample(&machine, 0.22, 1)
-        _ = sample(&machine, 0.22, 1.10)
-        _ = sample(&machine, 0.23, 1.25)
+        _ = sample(&machine, 0.22, 2)
+        _ = sample(&machine, 0.25, 2.1)
         XCTAssertEqual(machine.trend?.quietDuration, 0)
-        _ = sample(&machine, 0.23, 1.46)
-        _ = sample(&machine, 0.23, 1.75)
+        _ = sample(&machine, 0.25, 3.1)
+        _ = sample(&machine, 0.25, 3.39)
         XCTAssertTrue(machine.trend!.dynamicSampling)
-        _ = sample(&machine, 0.23, 1.76)
+        _ = sample(&machine, 0.25, 3.40)
         XCTAssertEqual(machine.pollInterval, 1)
+    }
+
+    func testSettledEvidenceRemainsQualifiedForCooldownRetry() throws {
+        var machine = try engine(cooldown: 3)
+        _ = sample(&machine, 0.1, 0)
+        let first = try XCTUnwrap(sample(&machine, 0.25, 1))
+        machine.complete(first, result: .blocked, at: time(1))
+        _ = sample(&machine, 0.25, 2)
+        _ = sample(&machine, 0.25, 2.4)
+        XCTAssertEqual(machine.pendingTarget, .light)
+        XCTAssertEqual(sample(&machine, 0.25, 4)?.target, .light)
+    }
+
+    func testOldSnapshotDecodesWithoutRetiredDAndWithoutNewOptionalFields() throws {
+        let data = Data(#"{"position":0,"change":1,"speed":0,"direction":1,"score":0.35,"velocity":0,"baseline":0.1,"effectiveChanges":2,"dynamicSampling":false,"quietDuration":0}"#.utf8)
+        let value = try SharedJSON.decoder().decode(BrightnessTrendSnapshot.self, from: data)
+        XCTAssertNil(value.filteredBrightness)
+        XCTAssertNil(value.projectedBrightness)
+        let encoded = String(decoding: try SharedJSON.encoder().encode(value), as: UTF8.self)
+        XCTAssertFalse(encoded.contains("direction"))
+        XCTAssertFalse(encoded.contains("effectiveChanges"))
     }
 
     func testScoreTriggersWithoutLegacyStableDelay() throws {
@@ -238,10 +299,10 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
     func testInFlightSurvivesScoreFallbackAndBlocksNewCandidates() throws {
         var machine = try engine()
         _ = sample(&machine, 0.40, 0)
-        let candidate = try XCTUnwrap(sample(&machine, 0.30, 1))
+        let candidate = try XCTUnwrap(sample(&machine, 0.25, 1))
         XCTAssertEqual(candidate.target, .dark)
-        XCTAssertNil(sample(&machine, 0.30, 1.1))
-        XCTAssertNil(sample(&machine, 0.30, 1.4))
+        XCTAssertNil(sample(&machine, 0.26, 1.1))
+        XCTAssertNil(sample(&machine, 0.26, 1.4))
         XCTAssertNil(machine.pendingTarget)
         XCTAssertGreaterThan(machine.trend!.score, -0.50)
         XCTAssertEqual(machine.inFlight, candidate)

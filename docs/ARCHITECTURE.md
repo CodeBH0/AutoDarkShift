@@ -36,7 +36,7 @@ flowchart TD
 | 当前 VPN 适配器 | `KeepAlive/VPNKeepAliveService.swift` | VPN 配置、重新启用、连接状态、断开错误、嵌入扩展校验；通过独立 `MonitoringClient` 接口提供跨进程控制 |
 | VPN 运行载体 | `PacketTunnel/PacketTunnelProvider.swift` | 系统隧道设置、生命周期和组合依赖；调用监听的 start/stop/sleep/wake；不含评分、亮度读取或通知内容 |
 | 监听业务 | `Monitoring/SwitchMonitor.swift` | 趋势评分与动态采样、候选、冷却、去重、心跳、统计、配置和通知结果持久化；仅依赖 Foundation 与接口 |
-| 纯逻辑模型 | `Shared/ThresholdStateMachine.swift` 中的 `BrightnessTrendStateMachine` | 四项评分、0.20 秒速度窗、最近 10 次有效方向、五档采样和 0.30 秒低速退出；全部时间由调用方注入 |
+| 纯逻辑模型 | `Shared/ThresholdStateMachine.swift` 中的 `BrightnessTrendStateMachine` | v2 三项评分、一秒统一速度窗、稳定 / 反向起点、五档采样和 0.30 秒低速退出；全部时间由调用方注入 |
 | 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | UIKit 主线程采样 / 事件 / 定时器，以及本地通知授权与提交 |
 | 监听控制 | `MonitoringClient`、`MonitorControlEndpoint`、`LocalMonitoringClient` | 查询、配置确认和诊断导出；与保活启停分离 |
 | 存储与协议 | `Shared/RuntimeStorage.swift` 等 | 配置、历史、快照、JSONL；通信版本 3，支持 `app-group-v1` 与 `local-ipc-v1` |
@@ -55,7 +55,7 @@ App 组合入口先探测共享目录的打开与读写，选择一种模式并�
 
 本地模式下，配置消息必须带有效参数及匹配 revision。扩展的成功历史保存在 ProviderRuntime，系统重新拉起不会被主 App 的旧历史覆盖。由 App 开启时携带最新保存参数；系统重新拉起优先保留扩展保存的配置，首次初始化可使用 VPN profile 的初始参数。
 
-查询不刷新采样心跳。App 停止连接后清除通信确认，本地缓存只代表上次获得的状态；不能直接访问扩展的私有文件。运行中导出最多 8 KiB 扩展生命周期日志与 24 KiB 本地监听尾部，不宣称这些尾部覆盖整个后台时段。Network Extension 的签名权限仍由系统验证。
+查询不刷新采样心跳。App 停止连接后清除通信确认，本地缓存只代表上次获得的状态；不能直接访问扩展的私有文件。运行与 Boost 日志分别建立分页快照、同步与缓存，不宣称有界记录覆盖整个后台时段。Network Extension 的签名权限仍由系统验证。
 
 ## 运行与观测的边界
 
@@ -84,11 +84,15 @@ Provider start/stop 与独立监听不依赖 App 状态查询成功。`MonitorCh
 
 单独添加一个 PiP 保活类还不等于迁移完成：还需接入系统 delegate/KVO 状态、View 生命周期、后台权限、采样宿主和真机验收。后台 app scene 变化本身不能代替 PiP active/stopped 状态。VideoCall 内容容器与 PlayerLayer 是不同适配实现；高刷、静音音频、悬浮窗高度等不是切换监听的要求。[上游开发说明](https://github.com/Yoroin/GlobalRefresh-PiP/blob/8004d96c9022a1ab281ef1a3beba2278ac6c024d/DEVELOPMENT_PRD.md)
 
+## 完整亮度日志
+
+`Monitoring/BoostTraceRecorder.swift` 接在趋势模型每次进入动态采样之后，记录前 5 秒常规上下文与之后每次读取、评分和频率结果。独立按亮度连续 2 秒波动不超过 0.005 判定结束，恢复 1 Hz 不结束记录。Boost 按次写入紧凑记录，与运行日志各自导出、分页同步和持久缓存；快照的 `boostTraceIDs` 与活动记录保持一致。范围、中断与容量约定见 [BOOST_TRACE_LOG.md](BOOST_TRACE_LOG.md)。
+
 ## 生命周期约束
 
 - start 先初始化持久化状态，再开始真实采样；初次状态无法保存时清理采样资源并返回失败。
-- sleep/stop/reload 使旧采样回调失效，清除趋势起点、速度窗口和方向历史。
-- 变频通过 `BrightnessSampling.updateInterval` 只更新定时器，不重装观察者、不使在途通知授权回调失效；退出动态采样保留 baseline。
+- sleep/stop/reload 使旧采样回调失效，清除趋势起点与速度窗口。
+- 变频通过 `BrightnessSampling.updateInterval` 只更新定时器，不重装观察者、不使在途通知授权回调失效；退出动态采样保留 baseline 与统一速度窗口。
 - 通知权限返回后检查运行阶段、生命周期采样代次和 inFlight 请求身份；普通评分 / pendingTarget 变化不撤销该请求，生命周期失效仍可取消未提交请求。
 - 已交给系统的通知请求允许完成，结果先持久化，再完成所有停止回调；重复或迟到回调不能重复调用 add。
 - 候选生成不推进冷却。success / failed / blocked 以终态完成时间更新冷却；cancelled 保留此前冷却和历史，不增加实际提交 / 成功计数。

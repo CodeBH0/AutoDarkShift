@@ -40,7 +40,7 @@ def file(path, kind):
 shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/SharedStore.swift",
           "Shared/ServiceContracts.swift", "Shared/MonitorMessageChannel.swift", "Shared/RuntimeStorage.swift",
           "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
-monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift"]
+monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift"]
 platform = ["Platform/ScreenBrightnessSampler.swift", "Platform/LocalModeNotificationSink.swift", "Platform/LoopbackMonitorTransport.swift"]
 keepalive = ["KeepAlive/VPNKeepAliveService.swift"]
 app = ["App/AutoDarkShiftApp.swift", "App/AppController.swift", "App/ControlView.swift", "App/AppComposition.swift"]

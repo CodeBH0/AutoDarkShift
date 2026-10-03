@@ -49,11 +49,20 @@ import Foundation
         ("sampling gaps clear trend before evaluating new brightness", samplingGap),
         ("retired wire commands are rejected without changing sampling", retiredCommands),
         ("historic test records remain exportable without mutation", legacyDiagnosticRetention),
+        ("Boost trace retains prelude every poll and post-exit changes until stability", boostTraceCompleteness),
+        ("brightness events prevent premature trace stability without becoming polls", boostTraceEvents),
+        ("overlapping Boost captures and lifecycle interruptions are explicit", boostTraceLifecycle),
+        ("Boost trace storage survives rotation restart and paged offline export", boostTraceStorage),
+        ("Boost trace recovery repairs a torn tail and retains whole captures", boostTraceRecovery),
+        ("Boost trace write failure does not change sampling or notification results", boostTraceFailure),
+        ("compact Boost records decode production fields and materially reduce bytes", boostCompactEncoding),
+        ("split cache migration preserves old Boost data and runtime write errors", splitLogMigration),
+        ("completed pagination snapshots release memory before new exports", diagnosticSnapshotRelease),
         ("raw provider probe does not depend on JSON or runtime state", transportProbe),
         ("transport fallback is sticky serialized and rejects bad replies", transportFallback),
         ("diagnostic pagination preserves snapshot and UTF8 boundaries", diagnosticPagination),
         ("provider log cache survives restart and rejects incomplete data", providerLogCache),
-        ("real loopback transports ordinary monitoring logs into offline export cache", loopbackExportChain)
+        ("real loopback transports both monitoring logs and Boost traces into offline export cache", loopbackExportChain)
     ] }
 
     private static func require(_ condition: @autoclosure () throws -> Bool, _ detail: String) throws {
@@ -563,14 +572,14 @@ import Foundation
         f.clock.advance(1)
         f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         let writes = f.store.snapshotWrites
-        for index in 1...240 {
+        for index in 1...360 {
             let elapsed = Double(index) / 120
             f.clock.now = Date(timeIntervalSince1970: 1_700_000_001 + elapsed)
             f.sampler.emit(0.20 - min(elapsed, 0.9) * 0.12, at: f.clock.now, uptime: f.clock.uptime)
         }
         try require(f.sampler.starts == 1 && f.sampler.retimes >= 4 && f.sampler.interval == 1,
                     "dynamic rate changes preserve observer and return to 1 Hz")
-        try require(f.runtime.snapshot.counters.polls == 241, "every high-rate read is evaluated")
+        try require(f.runtime.snapshot.counters.polls == 361, "every high-rate read is evaluated")
         try require(f.sink.submissions == 1 && f.store.savedHistory?.target == .dark,
                     "score request and successful history survive high-rate storage throttling")
         try require(f.store.snapshotWrites - writes < 20 && f.store.logs.filter { $0.event == "sample" }.count < 10,
@@ -588,8 +597,10 @@ import Foundation
         f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         f.clock.advance(0.10)
         f.sampler.emit(0.195, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.70)
+        f.sampler.emit(0.195, at: f.clock.now, uptime: f.clock.uptime)
         try require(f.sampler.starts == 1 && f.sampler.retimes == 2 && f.sampler.interval == 1.0 / 30,
-                    "retiming does not replace observation generation")
+                    "fixed-time velocity retiming does not replace observation generation")
         f.sink.completeAuthorization(true)
         try require(f.sink.submissions == 1 && f.runtime.snapshot.submission?.result == .success,
                     "still-qualified authorization survives sampling rate changes")
@@ -614,7 +625,7 @@ import Foundation
         try f.runtime.start()
         f.clock.advance(1)
         f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
-        f.clock.advance(0.10)
+        f.clock.advance(1)
         f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
         f.clock.advance(0.31)
         f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
@@ -644,12 +655,12 @@ import Foundation
         f.sampler.value = 0.40
         try f.runtime.start()
         f.clock.advance(1)
-        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        f.sampler.emit(0.28, at: f.clock.now, uptime: f.clock.uptime)
         let request = f.runtime.snapshot.submission!
         f.clock.advance(0.10)
-        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        f.sampler.emit(0.28, at: f.clock.now, uptime: f.clock.uptime)
         f.clock.advance(0.31)
-        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        f.sampler.emit(0.28, at: f.clock.now, uptime: f.clock.uptime)
         f.clock.advance(1)
         f.sampler.emit(0.31, at: f.clock.now, uptime: f.clock.uptime)
         try require(f.runtime.snapshot.trend!.score > -0.50 && f.runtime.snapshot.pendingTarget == nil,
@@ -659,10 +670,10 @@ import Foundation
                     "score changes retain the single original request")
         f.sink.completeAuthorization(true)
         try require(f.sink.submissions == 1 && f.sink.lastCandidate?.target == .dark
-                    && f.sink.lastCandidate?.brightness == 0.30 && f.sink.lastSource == .poll,
+                    && f.sink.lastCandidate?.brightness == 0.28 && f.sink.lastSource == .poll,
                     "authorization submits the original target brightness and source")
         try require(f.runtime.snapshot.sample?.brightness == 0.31
-                    && f.runtime.snapshot.submission?.brightness == 0.30
+                    && f.runtime.snapshot.submission?.brightness == 0.28
                     && f.runtime.snapshot.submission?.result == .success,
                     "latest sample and original submission remain distinct and accurate")
         let reply = try SharedJSON.decoder().decode(MonitorReply.self,
@@ -802,6 +813,285 @@ import Foundation
         }
     }
 
+    private static func boostTraceCompleteness() async throws {
+        let f = try fixture()
+        try f.runtime.start()
+        for _ in 1...6 {
+            f.clock.advance(1); f.sampler.emit(0.24, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        let id = f.runtime.snapshot.boostTraceIDs!.first!
+        let prelude = f.store.boostTraces[id]!.filter { $0.fields["phase"] == "preboost" }
+        try require(prelude.count == 5 && prelude.first?.fields["sequence"] == "3"
+                    && prelude.last?.fields["sequence"] == "7", "exact preceding five seconds of actual 1 Hz samples")
+        let triggerTime = f.clock.now
+        for index in 1...140 {
+            f.clock.now = triggerTime.addingTimeInterval(Double(index) / 100)
+            f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.runtime.flushDiagnostics()
+        try require(f.sampler.interval == 1 && f.runtime.snapshot.boostTraceIDs == [id]
+                    && !f.store.boostTraces[id]!.contains { $0.event == "boost_trace_end" },
+                    "return to 1 Hz cannot end the capture")
+        for index in 1...3 {
+            f.clock.advance(index == 1 ? 0.4 : 1)
+            f.sampler.emit(0.44 + Double(index) * 0.003, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.runtime.flushDiagnostics()
+        try require(f.runtime.snapshot.boostTraceIDs == [id], "slow cumulative drift exceeding 0.005 over two seconds keeps recording")
+        for _ in 1...3 {
+            f.clock.advance(1); f.sampler.emit(0.449, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        let records = f.store.boostTraces[id]!
+        let samples = records.filter { $0.event == "boost_trace_sample" }
+        let firstSequence = Int(samples.first!.fields["sequence"]!)!
+        let lastSequence = Int(samples.last!.fields["sequence"]!)!
+        try require(samples.count == lastSequence - firstSequence + 1 && samples.count >= 50
+                    && samples.allSatisfy { $0.fields["source"] == "poll" },
+                    "every prelude, trigger, high-rate and settled poll is retained without throttling")
+        let end = records.last!
+        try require(end.event == "boost_trace_end" && end.fields["complete"] == "true"
+                    && end.fields["reason"] == "brightness_stable" && f.runtime.snapshot.boostTraceIDs?.isEmpty == true,
+                    "only independent observed stability completes a trace")
+        let trigger = samples.first { $0.fields["phase"] == "trigger" }!
+        for key in ["S", "baseline", "filteredBrightness", "pollInterval", "requestedFrequency",
+                    "nextFrequency", "quietDuration", "candidateID", "inFlightID"] {
+            try require(trigger.fields[key] != nil, "full scoring and scheduling result: \(key)")
+        }
+        try require(trigger.fields["requestedFrequency"] == "1.0" && trigger.fields["nextFrequency"] == "120.0"
+                    && f.sink.submissions == 1 && f.store.savedHistory?.target == .light,
+                    "capture is observational and preserves the production request")
+        let count = samples.count
+        f.clock.advance(1); f.sampler.emit(0.449, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.store.boostTraces[id]!.filter { $0.event == "boost_trace_sample" }.count == count,
+                    "a completed trace cannot keep collecting stable background polls")
+    }
+
+    private static func boostTraceEvents() async throws {
+        let f = try fixture(); try f.runtime.start()
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        let id = f.runtime.snapshot.boostTraceIDs!.first!
+        let trigger = f.clock.now
+        for index in 1...40 {
+            f.clock.now = trigger.addingTimeInterval(Double(index) / 100)
+            f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.7)
+        f.sampler.receive?(BrightnessReading(value: 0.60, source: .event, timestamp: f.clock.now, uptime: f.clock.uptime))
+        f.clock.advance(0.1)
+        f.sampler.receive?(BrightnessReading(value: 0.44, source: .event, timestamp: f.clock.now, uptime: f.clock.uptime))
+        f.clock.advance(0.2); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.runtime.statusReply().snapshot?.boostTraceIDs == [id], "an observed event transient invalidates an otherwise quiet polling window")
+        for _ in 1...3 { f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime) }
+        let records = f.store.boostTraces[id]!
+        try require(records.filter { $0.fields["source"] == "event" }.count == 2
+                    && records.last?.fields["complete"] == "true" && f.runtime.snapshot.counters.eventCallbacks == 2,
+                    "real events are retained separately and stability is confirmed by later polling")
+    }
+
+    private static func boostTraceLifecycle() async throws {
+        for reason in ["sleep", "reload", "stop", "gap", "invalid", "clock"] {
+            let f = try fixture(); try f.runtime.start()
+            f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+            let id = f.runtime.snapshot.boostTraceIDs!.first!
+            switch reason {
+            case "sleep": f.runtime.sleep()
+            case "reload": _ = f.runtime.reload(expectedRevision: f.store.config.revision)
+            case "stop": f.runtime.stop(reason: "test", finalPhase: .stopped) {}
+            case "gap": f.clock.advance(3); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+            case "invalid": f.clock.advance(0.1); f.sampler.emit(.nan, at: f.clock.now, uptime: f.clock.uptime)
+            default: f.clock.advance(-0.1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+            }
+            let end = f.store.boostTraces[id]!.last!
+            try require(end.event == "boost_trace_end" && end.fields["complete"] == "false"
+                        && end.fields["reason"] != "brightness_stable", "\(reason) records a partial capture without fabricating stability")
+            try require(f.runtime.statusReply().snapshot?.boostTraceIDs?.isEmpty == true, "\(reason) clears active IDs in IPC")
+        }
+        let f = try fixture(); try f.runtime.start()
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        let first = f.runtime.snapshot.boostTraceIDs!.first!
+        let trigger = f.clock.now
+        for index in 1...140 {
+            f.clock.now = trigger.addingTimeInterval(Double(index) / 100)
+            f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.clock.advance(0.2); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.4); f.sampler.emit(0.24, at: f.clock.now, uptime: f.clock.uptime)
+        let ids = f.runtime.statusReply().snapshot!.boostTraceIDs!
+        try require(ids.count == 2 && ids.contains(first), "retrigger before stability keeps both independent captures")
+        f.runtime.sleep()
+        for id in ids {
+            try require(f.store.boostTraces[id]!.last?.fields["reason"] == "sleep", "both captures close on lifecycle interruption")
+        }
+    }
+
+    private static func boostTraceStorage() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = try SharedStore(directory: root)
+        let id = UUID().uuidString
+        var records = [LogRecord(instanceID: "provider", event: "boost_trace_start", fields: ["traceID": id])]
+        for index in 0..<9000 {
+            records.append(LogRecord(instanceID: "provider", event: "boost_trace_sample", fields: [
+                "traceID": id, "source": "poll", "sequence": String(index), "S": "0.70",
+                "brightness": "0.44", "uptime": String(Double(index) / 120), "requestedFrequency": "120", "nextFrequency": "120", "baseline": "0.24", "filteredBrightness": "0.44"
+            ]))
+        }
+        records.append(LogRecord(instanceID: "provider", event: "boost_trace_end", fields: ["traceID": id, "complete": "true"]))
+        try store.appendBoostTrace(id: id, records: records, finished: true)
+        for index in 0..<550 {
+            try store.append(LogRecord(instanceID: "provider", event: "ordinary", fields: ["index": String(index), "text": String(repeating: "x", count: 2048)]))
+        }
+        let source = try store.boostTraceDiagnostics()
+        try require(source.utf8.count > MonitorWire.maximumFrameBytes && source.contains("\"s\":[0,")
+                    && source.contains("\"s\":[8999,"), "independent full traces survive ordinary log rotation and exceed one frame")
+        let pager = MonitorDiagnosticPager()
+        let collected = try await MonitorDiagnosticPager.collect(id: UUID().uuidString, stream: .boost) { request in
+            try pager.page(for: request) { source }
+        }
+        try require(collected == source, "all trace pages reassemble exactly without applying runtime tail limits")
+        let app = try SharedStore(directory: root.appendingPathComponent("app"))
+        try app.saveProviderDiagnostics(collected, stream: .boost)
+        let offline = try SharedStore(directory: root.appendingPathComponent("app"))
+        let export = String(decoding: try offline.exportData(metadata: [:], stream: .boost), as: UTF8.self)
+        try require(export.contains(id) && export.contains("\"s\":[0,") && export.contains("\"s\":[8999,"),
+                    "local IPC copy remains complete and exportable after VPN shutdown and App restart")
+        let shared = String(decoding: try store.exportData(metadata: [:], stream: .boost), as: UTF8.self)
+        try require(shared.contains("boost_trace_start") && shared.contains("boost_trace_end"), "App Group export includes the second log module")
+    }
+
+    private static func boostTraceRecovery() async throws {
+        try withStore { store, root in
+            let id = UUID().uuidString
+            let record = LogRecord(instanceID: "old", event: "boost_trace_start", fields: ["traceID": id])
+            try store.appendBoostTrace(id: id, records: [record], finished: false)
+            let path = root.appendingPathComponent("boost-trace-\(id).open.jsonl")
+            let handle = try FileHandle(forWritingTo: path)
+            try handle.seekToEnd(); try handle.write(contentsOf: Data("{truncated".utf8)); try handle.close()
+            try store.recoverBoostTraces(instanceID: "new", at: Date())
+            let recovered = try store.boostTraceDiagnostics()
+            try require(recovered.contains("process_interrupted") && recovered.contains("\"complete\":\"false\"")
+                        && !recovered.contains("truncated"), "restart repairs the torn tail and marks the capture partial")
+            let live = UUID().uuidString
+            try store.appendBoostTrace(id: live, records: [LogRecord(instanceID: "new", event: "boost_trace_start", fields: ["traceID": live])], finished: false)
+            for _ in 0..<10 {
+                let completed = UUID().uuidString
+                try store.appendBoostTrace(id: completed, records: [
+                    LogRecord(instanceID: "new", event: "boost_trace_start", fields: ["traceID": completed]),
+                    LogRecord(instanceID: "new", event: "boost_trace_end", fields: ["traceID": completed, "complete": "true"])
+                ], finished: true)
+            }
+            let paths = try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.hasPrefix("boost-trace-") }
+            try require(paths.count == 9 && paths.contains("boost-trace-\(live).open.jsonl"), "retention preserves eight whole completed captures and every active capture")
+            for line in try store.boostTraceDiagnostics().split(separator: "\n") {
+                _ = try SharedJSON.decoder().decode(LogRecord.self, from: Data(line.utf8))
+            }
+        }
+    }
+
+    private static func boostTraceFailure() async throws {
+        let f = try fixture(); f.store.failBoostTrace = true
+        try f.runtime.start()
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.sampler.interval == 1 / 120 && f.sink.submissions == 1
+                    && f.store.savedHistory?.target == .light && f.runtime.snapshot.counters.polls == 1,
+                    "diagnostic failure cannot change scoring, retiming, notification or counters")
+        try require(f.store.logs.contains { $0.event == "boost_trace_error" }
+                    && f.runtime.snapshot.lastError != nil && f.runtime.snapshot.boostTraceIDs?.isEmpty == true,
+                    "write failure remains actionable and never claims an active or complete capture")
+    }
+
+    private static func boostCompactEncoding() async throws {
+        let f = try fixture(); try f.runtime.start()
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        let id = f.runtime.snapshot.boostTraceIDs!.first!
+        let trigger = f.clock.now
+        for index in 1...140 {
+            f.clock.now = trigger.addingTimeInterval(Double(index) / 100)
+            f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        f.runtime.flushDiagnostics()
+        let records = f.store.boostTraces[id]!
+        let samples = records.filter { $0.event == "boost_trace_sample" }
+        let oldBytes = try samples.reduce(0) { try $0 + SharedJSON.encoder().encode($1).count }
+        let newBytes = try samples.reduce(0) { try $0 + BoostTraceRecorder.encode($1).count }
+        try require(newBytes * 3 < oldBytes, "numeric rows remove at least two thirds of repeated sample bytes")
+        let encoded = try BoostTraceRecorder.encode(samples.first!)
+        let object = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
+        let row = object["s"] as! [Any]
+        try require(row.count == BoostTraceRecorder.sampleColumns.split(separator: ",").count
+                    && (row[0] as? NSNumber)?.uint64Value == UInt64(samples.first!.fields["sequence"]!)
+                    && (row[3] as? NSNumber)?.doubleValue == Double(samples.first!.fields["brightness"]!)
+                    && object["fields"] == nil && object["instanceID"] == nil, "production encoder preserves input numbers and versioned positional columns")
+#if os(macOS)
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        var data = Data()
+        for record in records { data.append(try BoostTraceRecorder.encode(record)); data.append(0x0A) }
+        let input = directory.appendingPathComponent("boost.jsonl")
+        let csv = directory.appendingPathComponent("decoded.csv")
+        try data.write(to: input)
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = [URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("tools/decode_boost_trace.py").path,
+                             input.path, "--output", csv.path]
+        try process.run(); process.waitUntilExit()
+        let decoded = try String(contentsOf: csv)
+        try require(process.terminationStatus == 0 && decoded.contains("filteredBrightness") && decoded.contains(id)
+                    && decoded.split(separator: "\n").count == samples.count + 1 && decoded.contains(",trigger,"),
+                    "shipped Python decoder restores every production compact sample and its capture phase: status=\(process.terminationStatus), rows=\(decoded.split(separator: "\n").count), expected=\(samples.count + 1), phase=\(decoded.contains(",trigger,")), id=\(decoded.contains(id)), header=\(decoded.contains("filteredBrightness"))")
+#endif
+    }
+
+    private static func splitLogMigration() async throws {
+        try withStore { store, root in
+            let onlyRuntime = String(decoding: try SharedJSON.encoder().encode(LogRecord(instanceID: "first", event: "monitor_ready")), as: UTF8.self) + "\n"
+            try store.saveProviderDiagnostics(onlyRuntime)
+            try require(try store.providerDiagnostics(stream: .boost) == nil,
+                        "a runtime-only cache cannot claim a Boost snapshot was acquired")
+            let id = UUID().uuidString
+            let rows = [LogRecord(instanceID: "old", event: "monitor_ready"),
+                        LogRecord(instanceID: "old", event: "boost_trace_start", fields: ["traceID": id]),
+                        LogRecord(instanceID: "old", event: "boost_trace_end", fields: ["traceID": id, "complete": "true"])]
+            var old = Data()
+            for row in rows { old.append(try SharedJSON.encoder().encode(row)); old.append(0x0A) }
+            try old.write(to: root.appendingPathComponent("provider-diagnostics.jsonl"))
+            let fresh = String(decoding: try SharedJSON.encoder().encode(LogRecord(instanceID: "new", event: "boost_trace_error", fields: ["detail": "disk failure"])), as: UTF8.self) + "\n"
+            try store.saveProviderDiagnostics(fresh)
+            do { try store.saveProviderDiagnostics("{partial", stream: .boost); throw ProjectError.message("Expected invalid Boost cache rejection") }
+            catch { try require(!(error as NSError).localizedDescription.contains("Expected"), "failed Boost sync preserves migrated data") }
+            let offline = try SharedStore(directory: root)
+            let runtime = String(decoding: try offline.exportData(metadata: [:]), as: UTF8.self)
+            let boost = String(decoding: try offline.exportData(metadata: [:], stream: .boost), as: UTF8.self)
+            try require(runtime.contains("boost_trace_error") && !runtime.contains("boost_trace_start")
+                        && boost.contains(id) && boost.contains("boost_trace_end") && !boost.contains("disk failure"),
+                        "legacy Boost survives a runtime cache replacement and write failure stays in runtime export")
+            try offline.saveProviderDiagnostics("", stream: .boost)
+            try require(try offline.providerDiagnostics(stream: .boost) == "", "a complete empty Boost snapshot can explicitly replace prior retained data")
+        }
+    }
+
+    private static func diagnosticSnapshotRelease() async throws {
+        let pager = MonitorDiagnosticPager()
+        let source = String(decoding: try SharedJSON.encoder().encode(LogRecord(instanceID: "provider", event: "sample", fields: ["text": String(repeating: "x", count: 100_000)])), as: UTF8.self) + "\n"
+        let first = UUID().uuidString
+        _ = try await MonitorDiagnosticPager.collect(id: first, stream: .boost) { try pager.page(for: $0) { source } }
+        try require(pager.retainedSnapshotBytes == source.utf8.count, "finished snapshot remains available for final-page retry")
+        let retry = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: first,
+                                  exportOffset: source.utf8.count, exportStream: .boost)) { "changed" }
+        try require(retry.exportTotalBytes == source.utf8.count, "same export ID retries the immutable final snapshot")
+        _ = try await MonitorDiagnosticPager.collect(id: UUID().uuidString) { try pager.page(for: $0) { source } }
+        try require(pager.retainedSnapshotBytes == source.utf8.count, "next independent export releases completed bytes instead of accumulating histories")
+        let mixed = UUID().uuidString
+        _ = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: mixed, exportOffset: 0, exportStream: .boost)) { source }
+        do {
+            _ = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: mixed, exportOffset: 0, exportStream: .runtime)) { source }
+            throw ProjectError.message("Expected stream identity mismatch")
+        } catch { try require(!(error as NSError).localizedDescription.contains("Expected"), "one export ID cannot mix runtime and Boost offsets") }
+    }
+
     private static func transportProbe() async throws {
         var sent = Data()
         try await MonitorMessageChannel().probe { data, completion in sent = data; completion(data) }
@@ -861,17 +1151,19 @@ import Foundation
     private static func diagnosticPagination() async throws {
         let pager = MonitorDiagnosticPager()
         let id = UUID().uuidString
-        let record = LogRecord(instanceID: "provider", event: "sample", fields: ["text": String(repeating: "日志😀", count: 1000)])
+        let record = LogRecord(instanceID: "provider", event: "sample", fields: ["text": String(repeating: "日志😀", count: 10000)])
         let logs = String(decoding: try SharedJSON.encoder().encode(record), as: UTF8.self) + "\n"
         var loads = 0
         let collected = try await MonitorDiagnosticPager.collect(id: id) { request in
             try pager.page(for: request) { loads += 1; return logs }
         }
         try require(collected == logs && loads == 1, "one stable snapshot with UTF8-safe byte reassembly")
+        let activeID = UUID().uuidString
+        _ = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: activeID, exportOffset: 0)) { logs }
         let otherID = UUID().uuidString
         _ = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: otherID, exportOffset: 0)) { logs }
-        let resumed = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: id, exportOffset: 4096)) { "changed" }
-        try require(resumed.exportID == id && resumed.exportTotalBytes == logs.utf8.count,
+        let resumed = try pager.page(for: MonitorRequest(command: .exportDiagnosticPage, exportID: activeID, exportOffset: MonitorWire.diagnosticPageBytes)) { "changed" }
+        try require(resumed.exportID == activeID && resumed.exportTotalBytes == logs.utf8.count,
                     "manual export and automatic sync cannot replace each other's active snapshot")
         var refused = false
         do {
@@ -909,12 +1201,22 @@ import Foundation
                                        bundleIdentifier: "test", buildVersion: "9", appGroupIdentifier: "test")
         let pager = MonitorDiagnosticPager()
         let endpoint = MonitorControlEndpoint(identity: identity, runtime: { f.runtime }, diagnostics: {
+            f.runtime.flushDiagnostics()
             var data = Data()
             for record in f.store.logs {
                 data.append(try SharedJSON.encoder().encode(record)); data.append(0x0A)
             }
             return String(decoding: data, as: UTF8.self)
-        }, configurationStore: f.store, pager: pager)
+        }, configurationStore: f.store, pager: pager, boostDiagnostics: {
+            f.runtime.flushDiagnostics()
+            var data = Data()
+            for id in f.store.boostTraces.keys.sorted() {
+                for record in f.store.boostTraces[id]! {
+                    data.append(try BoostTraceRecorder.encode(record)); data.append(0x0A)
+                }
+            }
+            return String(decoding: data, as: UTF8.self)
+        })
         var ready = false
         var listenerError: String?
         let server = LoopbackMonitorServer(credentials: credentials, handle: { endpoint.handle($0) }, record: { event, fields in
@@ -940,20 +1242,46 @@ import Foundation
         let status = try SharedJSON.decoder().decode(MonitorReply.self, from: statusData)
         try require(status.success && status.snapshot?.counters.polls == 100 && status.snapshot?.sample?.sequence == 101,
                     "query over TCP returns actual sampling counters without creating a heartbeat")
+        f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        let traceID = f.runtime.snapshot.boostTraceIDs!.first!
+        let trigger = f.clock.now
+        for index in 1...140 {
+            f.clock.now = trigger.addingTimeInterval(Double(index) / 100)
+            f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime)
+        }
+        for _ in 1...3 { f.clock.advance(1); f.sampler.emit(0.44, at: f.clock.now, uptime: f.clock.uptime) }
         let logs = try await MonitorDiagnosticPager.collect(id: UUID().uuidString) { request in
             let data = try await client.send(SharedJSON.encoder().encode(request), credentials: credentials)
             return try SharedJSON.decoder().decode(MonitorReply.self, from: data)
         }
         try require(logs.utf8.count > 4096 && logs.contains("sample") && logs.contains(configuration.revision)
                     && logs.contains("\"sequence\":\"101\""), "actual TCP transfers all pages of ordinary monitoring logs")
+        let boost = try await MonitorDiagnosticPager.collect(id: UUID().uuidString, stream: .boost) { request in
+            let data = try await client.send(SharedJSON.encoder().encode(request), credentials: credentials)
+            return try SharedJSON.decoder().decode(MonitorReply.self, from: data)
+        }
+        try require(!logs.contains("boost_trace_start") && boost.contains(traceID) && boost.contains("boost_trace_start")
+                    && boost.contains("boost_trace_end") && boost.contains("\"complete\":\"true\"") && boost.contains("\"s\":["),
+                    "actual TCP independently carries compact Boost inputs from prelude to stable completion")
         try withStore { store, root in
             try store.saveProviderDiagnostics(logs)
+            try store.saveProviderDiagnostics(boost, stream: .boost)
             server.stop()
             let offline = try SharedStore(directory: root)
-            try require(try offline.providerDiagnostics() == logs, "ordinary records remain available without a live provider")
-            let exported = String(decoding: try offline.exportData(metadata: [:]), as: UTF8.self)
+            try require(try offline.providerDiagnostics() == logs && offline.providerDiagnostics(stream: .boost) == boost,
+                        "both independent provider snapshots survive shutdown and App restart")
+            let runtimeExport = try offline.exportData(metadata: [:])
+            let boostExport = try offline.exportData(metadata: [:], stream: .boost)
+            let exported = String(decoding: runtimeExport, as: UTF8.self)
+            let traceExported = String(decoding: boostExport, as: UTF8.self)
             try require(exported.contains("provider_logs_cache_export") && exported.contains(configuration.revision)
-                        && exported.contains("\"sequence\":\"101\""), "ordinary transport output reaches the final offline export format")
+                        && exported.contains("\"sequence\":\"101\"") && !exported.contains("boost_trace_start")
+                        && traceExported.contains(traceID) && traceExported.contains("boost_trace_end")
+                        && !traceExported.contains("notification_submit"), "two offline exports have independent contents")
+            let urls = try SharedStore.writeExports([.runtime: runtimeExport, .boost: boostExport])
+            try require(urls.count == 2 && urls[0].lastPathComponent.contains("runtime") && urls[1].lastPathComponent.contains("boost")
+                        && (try Data(contentsOf: urls[0])) == runtimeExport && (try Data(contentsOf: urls[1])) == boostExport,
+                        "the share sheet receives two real independent JSONL files")
         }
         // Restart listener to check that a token from another profile cannot invoke controls.
         ready = false
@@ -1004,6 +1332,8 @@ private final class MemoryStore: MonitorStore {
     var failSnapshot = false
     var snapshotWrites = 0
     var logs: [LogRecord] = []
+    var boostTraces: [String: [LogRecord]] = [:]
+    var failBoostTrace = false
     func configuration() throws -> MonitorConfiguration { config }
     func saveConfiguration(_ value: MonitorConfiguration) throws { config = value }
     func snapshot() throws -> RuntimeSnapshot? { savedSnapshot }
@@ -1015,6 +1345,11 @@ private final class MemoryStore: MonitorStore {
     func history() throws -> SubmissionHistory? { savedHistory }
     func saveHistory(_ value: SubmissionHistory) throws { savedHistory = value }
     func append(_ record: LogRecord) throws { logs.append(record) }
+    func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws {
+        if failBoostTrace { throw ProjectError.message("Simulated trace disk error") }
+        boostTraces[id, default: []].append(contentsOf: records)
+    }
+    func recoverBoostTraces(instanceID: String, at: Date) throws {}
 
 }
 @MainActor private final class FakeSampler: BrightnessSampling {

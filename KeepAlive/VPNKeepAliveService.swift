@@ -12,7 +12,7 @@ import NetworkExtension
     private let router = MonitorTransportRouter()
     private let bridgeClient = LoopbackMonitorClient()
     private var hasProbed = false
-    private var diagnosticExportTask: (id: UUID, task: Task<String, Error>)?
+    private var diagnosticExportTasks: [MonitorLogStream: (id: UUID, task: Task<String, Error>)] = [:]
     private let record: (String, [String: String]) -> Void
     private let storage: RuntimeStoreSelection?
     private let storageError: String?
@@ -99,8 +99,8 @@ import NetworkExtension
         }
         publish(KeepAliveState(phase: state.phase, description: state.description))
         router.reset()
-        diagnosticExportTask?.task.cancel()
-        diagnosticExportTask = nil
+        diagnosticExportTasks.values.forEach { $0.task.cancel() }
+        diagnosticExportTasks.removeAll()
         hasProbed = false
         record("vpn_start_requested", ["storageMode": storageMode.rawValue, "revision": initialConfiguration.revision])
         guard let session = manager.connection as? NETunnelProviderSession else { throw ProjectError.message("VPN 连接不是 PacketTunnel 会话。") }
@@ -138,13 +138,16 @@ import NetworkExtension
         try await sendChecked(.init(command: .reloadConfiguration, expectedRevision: configuration.revision,
                                     configuration: storageMode == .localIPC ? configuration : nil))
     }
-    func diagnostics() async throws -> String {
-        if let active = diagnosticExportTask { return try await active.task.value }
+    func diagnostics(stream: MonitorLogStream) async throws -> String {
+        if let active = diagnosticExportTasks[stream] { return try await active.task.value }
         let id = UUID()
-        let task = Task { try await MonitorDiagnosticPager.collect(id: id.uuidString) { try await self.sendChecked($0) } }
-        diagnosticExportTask = (id, task)
-        defer { if diagnosticExportTask?.id == id { diagnosticExportTask = nil } }
-        return try await task.value
+        let task = Task { try await MonitorDiagnosticPager.collect(id: id.uuidString, stream: stream) { try await self.sendChecked($0) } }
+        diagnosticExportTasks[stream] = (id, task)
+        defer { if diagnosticExportTasks[stream]?.id == id { diagnosticExportTasks.removeValue(forKey: stream) } }
+        let result = try await task.value
+        record("provider_log_export_complete", ["stream": stream.rawValue, "bytes": String(result.utf8.count),
+            "pageBytes": String(MonitorWire.diagnosticPageBytes), "transport": router.usesFallback ? "loopback" : "provider_message"])
+        return result
     }
 
     private func sendChecked(_ request: MonitorRequest) async throws -> MonitorReply {
@@ -152,6 +155,7 @@ import NetworkExtension
         guard let session = manager?.connection as? NETunnelProviderSession, state.phase.canMessage else {
             throw ProjectError.message("VPN 尚未连接，无法确认监听状态。配置保存成功时会在下次启动应用。")
         }
+        let logControl = request.command != .exportDiagnosticPage
         let expected = try embeddedIdentity()
         let payload = try SharedJSON.encoder().encode(request)
         let metadata = (manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerConfiguration ?? [:]
@@ -161,9 +165,9 @@ import NetworkExtension
         } else { credentials = nil }
         do {
             let reply = try await router.send(primary: {
-                self.record("provider_message_sent", ["command": request.command.rawValue,
+                if logControl { self.record("provider_message_sent", ["command": request.command.rawValue,
                     "sessionClass": String(describing: type(of: session)), "status": String(session.status.rawValue),
-                    "providerBundleIdentifier": (self.manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier ?? "missing"])
+                    "providerBundleIdentifier": (self.manager?.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier ?? "missing"]) }
                 do {
                     return try await self.channel.send(request) { data, completion in
                         try session.sendProviderMessage(data, responseHandler: completion)
@@ -184,10 +188,10 @@ import NetworkExtension
                     }
                 }
                 guard let credentials else { throw MonitorChannelError.bridgeUnavailable("旧 VPN 配置缺少本机通道参数，请关闭保活后重新开启。") }
-                self.record("loopback_message_sent", ["command": request.command.rawValue, "port": String(credentials.port)])
+                if logControl { self.record("loopback_message_sent", ["command": request.command.rawValue, "port": String(credentials.port)]) }
                 let data = try await self.bridgeClient.send(payload, credentials: credentials)
                 let reply = try SharedJSON.decoder().decode(MonitorReply.self, from: data)
-                self.record("loopback_message_received", ["command": request.command.rawValue, "bytes": String(data.count)])
+                if logControl { self.record("loopback_message_received", ["command": request.command.rawValue, "bytes": String(data.count)]) }
                 return reply
             })
             guard self.manager?.connection === session, self.state.phase.canMessage else {
@@ -196,8 +200,8 @@ import NetworkExtension
             guard let identity = reply.identity else { throw ProjectError.message("扩展回复缺少版本握手；请安装当前版本并重启 VPN。") }
             try identity.validate(against: expected)
             guard reply.success else { throw ProjectError.message(reply.message) }
-            record("monitor_message_confirmed", ["command": request.command.rawValue, "transport": router.usesFallback ? "loopback" : "provider_message",
-                                                  "identity": String(describing: identity)])
+            if logControl { record("monitor_message_confirmed", ["command": request.command.rawValue, "transport": router.usesFallback ? "loopback" : "provider_message",
+                                                  "identity": String(describing: identity)]) }
             return reply
         } catch {
             let event = error is MonitorChannelError ? "provider_message_unavailable" : "provider_message_error"
