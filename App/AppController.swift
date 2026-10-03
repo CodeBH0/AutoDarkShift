@@ -121,8 +121,7 @@ final class AppController: ObservableObject {
         snapshot?.heartbeatAt.map { max(0, now.timeIntervalSince($0)) }
     }
     var heartbeatLimit: TimeInterval {
-        max(5, (snapshot?.activePollInterval ?? snapshot?.appliedConfiguration.pollInterval
-                ?? configuration.pollInterval) * 3)
+        max(5, (snapshot?.activePollInterval ?? BrightnessTrendModel.normalPollInterval) * 3)
     }
     var samplingIsLive: Bool {
         guard let snapshot, snapshot.phase == .running, let age = heartbeatAge else { return false }

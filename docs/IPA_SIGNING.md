@@ -1,8 +1,8 @@
 # iPhone 重签 IPA
 
-已使用 Xcode 16.2 / iOS 18.2 SDK 构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.0，build 9，通信协议 3。
+已使用 Xcode 16.2 / iOS 18.2 SDK 构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.1，build 10，通信协议 3。
 
-文件：`build/AutoDarkShift-1.0.0-build9-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
+文件：`build/AutoDarkShift-1.0.1-build10-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
 
 ## 签名时保留的内容
 
@@ -37,6 +37,6 @@ bash tools/package_ipa.sh
 
 已通过 iPhone Release 编译和归档、主 App/扩展 arm64 与 iPhoneOS 平台检查、权限与共享标识符检查、占位签名完整性检查、IPA ZIP 完整性检查。真实证书签名、安装和设备上的 VPN、亮度及后台行为尚未验证。
 
-运行时以单个“保活”开关准备并开启 VPN。build 9 已拆除并归档轮询率测试组件，保留普通监听与认证本机通道日志回传，并继续区分真实连接与运行详情读取；查询无回复不是要求重新签名或安装的依据。安装后的功能与可观测性分开记录，具体步骤见 [LOG_REPAIR.md](LOG_REPAIR.md)。
+运行时以单个“保活”开关准备并开启 VPN。1.0.1 / build 10 使用亮度趋势评分与动态采样（1 / 10 / 30 / 60 / 120 Hz），保留认证本机通道日志回传；实验扫描组件继续归档，并继续区分真实连接与运行详情读取；查询无回复不是要求重新签名或安装的依据。安装后的功能与可观测性分开记录，具体步骤见 [LOG_REPAIR.md](LOG_REPAIR.md)。
 
 升级后关闭再开启一次保活，让旧 VPN profile 写入本机日志备用通道参数。新的回传链路与复测见 [LOG_TRANSPORT.md](LOG_TRANSPORT.md)。

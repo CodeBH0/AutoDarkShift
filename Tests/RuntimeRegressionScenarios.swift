@@ -26,7 +26,7 @@ import Foundation
         ("malformed reply is not retried", malformedReply),
         ("shared store round trip and corrupt data", storageRoundTrip),
         ("JSONL tail repair and bounded diagnostic export", logRepair),
-        ("threshold boundaries and deduplication", thresholdBoundaries),
+        ("trend score and deduplication", trendBoundaries),
         ("missing App Group selects explicit local mode", missingAppGroup),
         ("provider honors negotiated storage mode", providerStorageMode),
         ("local IPC applies configuration and returns real snapshot", localIPCConfiguration),
@@ -39,7 +39,9 @@ import Foundation
         ("readback retry backs off and recovers", readbackRecovery),
         ("rejected and malformed replies remain errors", actionableReadbackFailure),
         ("retired test configuration and snapshot load as ordinary monitoring", retiredConfiguration),
-        ("short configured interval bounds storage and preserves notifications", configuredStorageCadence),
+        ("dynamic sampling bounds storage and preserves notifications", dynamicStorageCadence),
+        ("retiming preserves observer and pending authorization", retimingPreservesAuthorization),
+        ("sampling gaps clear trend before evaluating new brightness", samplingGap),
         ("retired wire commands are rejected without changing sampling", retiredCommands),
         ("historic test records remain exportable without mutation", legacyDiagnosticRetention),
         ("raw provider probe does not depend on JSON or runtime state", transportProbe),
@@ -53,9 +55,9 @@ import Foundation
         if try condition() == false { throw ProjectError.message("Regression: \(detail)") }
     }
 
-    private static func fixture(stable: Double = 0, cooldown: Double = 0) throws -> Fixture {
+    private static func fixture(cooldown: Double = 0) throws -> Fixture {
         let store = MemoryStore()
-        store.config = MonitorConfiguration(stableDuration: stable, cooldown: cooldown)
+        store.config = MonitorConfiguration(cooldown: cooldown)
         let sampler = FakeSampler()
         let sink = FakeNotifications()
         let clock = TestClock()
@@ -65,7 +67,7 @@ import Foundation
     }
 
     private static func lifecycle() async throws {
-        let f = try fixture(stable: 1)
+        let f = try fixture()
         try f.runtime.start()
         try require(f.sampler.starts == 1 && f.runtime.snapshot.sample?.source == .initial, "initial sampling")
         try require(f.runtime.snapshot.counters.samples == 1, "initial sample counter")
@@ -90,7 +92,7 @@ import Foundation
     }
 
     private static func staleSamples() async throws {
-        let f = try fixture(stable: 1)
+        let f = try fixture()
         try f.runtime.start()
         let oldCallback = f.sampler.receive
         f.runtime.sleep()
@@ -103,8 +105,10 @@ import Foundation
     private static func permissionAfterStop() async throws {
         let f = try fixture()
         f.sink.deferAuthorization = true
-        f.sampler.value = 0
+        f.sampler.value = 0.40
         try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         var stopped = false
         f.runtime.stop(reason: "test", finalPhase: .stopped) { stopped = true }
         try require(!stopped, "stop drains permission callback")
@@ -116,8 +120,10 @@ import Foundation
     private static func stopWaitsForSubmission() async throws {
         let f = try fixture()
         f.sink.deferSubmission = true
-        f.sampler.value = 0
+        f.sampler.value = 0.40
         try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         var completions = 0
         f.runtime.stop(reason: "first", finalPhase: .stopped) { completions += 1 }
         f.runtime.stop(reason: "second", finalPhase: .stopped) { completions += 1 }
@@ -130,11 +136,13 @@ import Foundation
     private static func reloadCancelsCandidate() async throws {
         let f = try fixture()
         f.sink.deferAuthorization = true
-        f.sampler.value = 0
+        f.sampler.value = 0.40
         try f.runtime.start()
-        f.store.config = MonitorConfiguration(revision: "new", pollInterval: 2, stableDuration: 0, cooldown: 0)
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+        f.store.config = MonitorConfiguration(revision: "new", cooldown: 0)
         let reply = f.runtime.reload(expectedRevision: "new")
-        try require(reply.success && f.sampler.interval == 2, "configuration applies to scheduler")
+        try require(reply.success && f.sampler.interval == 1, "configuration applies to scheduler")
         f.sink.completeAuthorization(true)
         try require(f.sink.submissions == 0, "configuration invalidates old candidate")
         let mismatch = f.runtime.reload(expectedRevision: "old")
@@ -144,22 +152,26 @@ import Foundation
     private static func blockedPermissionRetries() async throws {
         let f = try fixture(cooldown: 2)
         f.sink.allowed = false
-        f.sampler.value = 0
+        f.sampler.value = 0.40
         try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         try require(f.runtime.snapshot.submission?.result == .blocked && f.sink.submissions == 0, "permission block")
         f.sink.allowed = true
         f.clock.advance(1)
-        f.sampler.emit(0, at: f.clock.now)
+        f.sampler.emit(0.15, at: f.clock.now, uptime: f.clock.uptime)
         try require(f.sink.submissions == 0, "cooldown preserved")
         f.clock.advance(1)
-        f.sampler.emit(0, at: f.clock.now)
+        f.sampler.emit(0.10, at: f.clock.now, uptime: f.clock.uptime)
         try require(f.sink.submissions == 1 && f.runtime.snapshot.history?.target == .dark, "fresh sample retries")
     }
 
     private static func historyAcrossHosts() async throws {
         let f = try fixture()
-        f.sampler.value = 0
+        f.sampler.value = 0.40
         try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         f.runtime.stop(reason: "replace host", finalPhase: .stopped) {}
         let newSampler = FakeSampler()
         newSampler.value = 0
@@ -170,7 +182,7 @@ import Foundation
     }
 
     private static func startupFailure() async throws {
-        let f = try fixture(stable: 1)
+        let f = try fixture()
         f.store.failSnapshot = true
         do { try f.runtime.start(); throw ProjectError.message("Expected storage failure") }
         catch {
@@ -183,9 +195,9 @@ import Foundation
         let f = try fixture()
         try f.runtime.start()
         let client = LocalMonitoringClient(runtime: f.runtime, store: f.store, diagnostics: { "local\n" })
-        let config = MonitorConfiguration(revision: "local", pollInterval: 4)
+        let config = MonitorConfiguration(revision: "local", cooldown: 4)
         let reply = try await client.applyConfiguration(config)
-        try require(reply.appliedRevision == "local" && f.sampler.interval == 4, "in-app client has same configuration behavior")
+        try require(reply.appliedRevision == "local" && f.sampler.interval == 1, "in-app client has same configuration behavior")
         let diagnostics = try await client.diagnostics()
         try require(diagnostics == "local\n", "local diagnostics")
     }
@@ -315,16 +327,19 @@ import Foundation
             for line in tail.split(separator: "\n") { _ = try JSONSerialization.jsonObject(with: Data(line.utf8)) }
         }
     }
-    private static func thresholdBoundaries() async throws {
-        var machine = try ThresholdStateMachine(configuration: MonitorConfiguration(stableDuration: 1, cooldown: 0))
+    private static func trendBoundaries() async throws {
+        var machine = try BrightnessTrendStateMachine(configuration: MonitorConfiguration(cooldown: 0))
         let t = Date(timeIntervalSince1970: 1_700_000_000)
-        try require(machine.sample(brightness: 0.2, at: t) == nil, "dark equality requires stability")
-        guard let dark = machine.sample(brightness: 0.2, at: t.addingTimeInterval(1)) else { throw ProjectError.message("Missing dark boundary candidate") }
+        try require(machine.sample(brightness: 0.40, at: t, uptime: 0) == nil, "first reading has no transition")
+        guard let dark = machine.sample(brightness: 0.20, at: t.addingTimeInterval(1), uptime: 1) else {
+            throw ProjectError.message("Missing dark trend candidate")
+        }
         machine.complete(dark, succeeded: true, at: t.addingTimeInterval(1))
-        try require(machine.sample(brightness: 0, at: t.addingTimeInterval(2)) == nil, "same target dedupes")
-        _ = machine.sample(brightness: 0.28, at: t.addingTimeInterval(3))
-        guard let light = machine.sample(brightness: 1, at: t.addingTimeInterval(4)) else { throw ProjectError.message("Missing light candidate") }
-        try require(light.target == .light, "light boundary")
+        try require(machine.sample(brightness: 0.18, at: t.addingTimeInterval(1.1), uptime: 1.1) == nil, "same target dedupes")
+        machine.resetObservations()
+        _ = machine.sample(brightness: 0.10, at: t.addingTimeInterval(2), uptime: 2)
+        let light = machine.sample(brightness: 0.30, at: t.addingTimeInterval(3), uptime: 3)
+        try require(light?.target == .light, "opposite trend switches immediately at score threshold")
     }
 
     private static func missingAppGroup() async throws {
@@ -334,7 +349,7 @@ import Foundation
             }, local: { local })
             try require(selection.mode == .localIPC && selection.fallbackReason?.contains("App Group unavailable") == true,
                         "app selects explicit mode and retains reason")
-            let configuration = MonitorConfiguration(revision: "local-start", darkThreshold: 0.26, lightThreshold: 0.29)
+            let configuration = MonitorConfiguration(revision: "local-start", cooldown: 4)
             try selection.store.saveConfiguration(configuration)
             try require(try selection.store.configuration() == configuration, "local mode persists editable configuration")
         }
@@ -363,7 +378,7 @@ import Foundation
         var localIdentity = identity
         localIdentity.storageMode = RuntimeStorageMode.localIPC.rawValue
         let endpoint = MonitorControlEndpoint(identity: localIdentity, runtime: { f.runtime }, diagnostics: { "" }, configurationStore: f.store)
-        let configuration = MonitorConfiguration(revision: "ipc-new", darkThreshold: 0.26, lightThreshold: 0.29, pollInterval: 2)
+        let configuration = MonitorConfiguration(revision: "ipc-new", cooldown: 2)
         let before = f.runtime.snapshot.heartbeatAt
         let payload = try SharedJSON.encoder().encode(MonitorRequest(command: .reloadConfiguration,
             expectedRevision: configuration.revision, configuration: configuration))
@@ -371,7 +386,7 @@ import Foundation
             expectedRevision: configuration.revision, configuration: configuration)) { _, completion in
             completion(endpoint.handle(payload))
         }
-        try require(reply.success && reply.appliedRevision == "ipc-new" && f.sampler.interval == 2, "IPC actually applies configuration")
+        try require(reply.success && reply.appliedRevision == "ipc-new" && f.sampler.interval == 1, "IPC actually applies configuration")
         try require(reply.snapshot?.heartbeatAt == before, "IPC reply does not manufacture heartbeat")
         try require(reply.identity == localIdentity, "actual mode included in handshake")
     }
@@ -386,7 +401,7 @@ import Foundation
         for request in [MonitorRequest(command: .reloadConfiguration, expectedRevision: "new"),
                         MonitorRequest(command: .reloadConfiguration, expectedRevision: "different", configuration: original),
                         MonitorRequest(command: .reloadConfiguration, expectedRevision: "invalid",
-                                       configuration: MonitorConfiguration(revision: "invalid", darkThreshold: 0.8, lightThreshold: 0.2))] {
+                                       configuration: MonitorConfiguration(revision: "invalid", cooldown: -1))] {
             let reply = try decode(endpoint.handle(SharedJSON.encoder().encode(request)))
             try require(!reply.success && f.store.config == original, "invalid IPC input leaves old configuration intact")
         }
@@ -505,48 +520,87 @@ import Foundation
         try withStore { store, root in
             var configuration = try JSONSerialization.jsonObject(with: SharedJSON.encoder().encode(f.store.config)) as! [String: Any]
             configuration["pollInterval"] = 2.0
+            configuration["darkThreshold"] = 0.95
+            configuration["lightThreshold"] = 0.98
+            configuration["stableDuration"] = 100.0
             configuration["pollingBoost"] = "hz1000"
             let legacyConfiguration = try JSONSerialization.data(withJSONObject: configuration)
             try legacyConfiguration.write(to: root.appendingPathComponent("configuration.json"))
             var status = try JSONSerialization.jsonObject(with: SharedJSON.encoder().encode(f.runtime.snapshot)) as! [String: Any]
             status["appliedConfiguration"] = configuration
+            status["schemaVersion"] = 1
+            status.removeValue(forKey: "trend")
             status["pollingTestID"] = UUID().uuidString
             status["activePollInterval"] = 0.001
             try JSONSerialization.data(withJSONObject: status).write(to: root.appendingPathComponent("status.json"))
             let sampler = FakeSampler()
             let runtime = try SwitchMonitor(store: store, sampler: sampler, notifications: FakeNotifications())
             try runtime.start()
-            try require(sampler.interval == 2 && runtime.snapshot.activePollInterval == 2,
-                        "upgrade uses saved base interval and never resumes a retired sweep or Boost")
+            try require(sampler.interval == 1 && runtime.snapshot.activePollInterval == 1,
+                        "upgrade uses model 1 Hz baseline and ignores legacy interval, thresholds and Boost")
             try require(runtime.snapshot.counters.samples == f.runtime.snapshot.counters.samples + 1,
                         "legacy sample counters survive upgrade")
             try store.saveConfiguration(store.configuration())
             let saved = String(decoding: try Data(contentsOf: root.appendingPathComponent("configuration.json")), as: UTF8.self)
             let savedStatus = String(decoding: try Data(contentsOf: root.appendingPathComponent("status.json")), as: UTF8.self)
-            try require(!saved.contains("pollingBoost") && !savedStatus.contains("pollingTestID"),
+            try require(!saved.contains("pollingBoost") && !saved.contains("pollInterval")
+                        && !saved.contains("darkThreshold") && !saved.contains("stableDuration")
+                        && !savedStatus.contains("pollingTestID"),
                         "subsequent persistence drops retired fields")
             runtime.stop(reason: "test", finalPhase: .stopped) {}
         }
     }
 
-    private static func configuredStorageCadence() async throws {
-        let f = try fixture(stable: 0.01)
-        f.store.config.pollInterval = 0.001
+    private static func dynamicStorageCadence() async throws {
+        let f = try fixture()
+        f.sampler.value = 0.40
         try f.runtime.start()
-        _ = f.runtime.reload(expectedRevision: f.store.config.revision)
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
         let writes = f.store.snapshotWrites
-        for index in 1...2000 {
-            let elapsed = Double(index) / 1000
-            f.clock.now = Date(timeIntervalSince1970: 1_700_000_000 + elapsed)
-            f.sampler.emit(index > 1100 ? 0.1 : 0.24, at: f.clock.now, uptime: elapsed)
+        for index in 1...240 {
+            let elapsed = Double(index) / 120
+            f.clock.now = Date(timeIntervalSince1970: 1_700_000_001 + elapsed)
+            f.sampler.emit(0.20 - min(elapsed, 0.9) * 0.12, at: f.clock.now, uptime: f.clock.uptime)
         }
-        try require(f.sampler.interval == 0.001 && f.runtime.snapshot.counters.polls == 2000,
-                    "every sample at the configured interval reaches the runtime")
+        try require(f.sampler.starts == 1 && f.sampler.retimes >= 4 && f.sampler.interval == 1,
+                    "dynamic rate changes preserve observer and return to 1 Hz")
+        try require(f.runtime.snapshot.counters.polls == 241, "every high-rate read is evaluated")
         try require(f.sink.submissions == 1 && f.store.savedHistory?.target == .dark,
-                    "short user intervals retain threshold evaluation and successful notification history")
-        try require(f.store.snapshotWrites - writes < 12 && f.store.logs.filter { $0.event == "sample" }.count < 6,
-                    "routine storage stays bounded at short configured intervals")
-        try require(!f.store.logs.contains { $0.event.hasPrefix("polling_") }, "no retired statistics are produced")
+                    "score request and successful history survive high-rate storage throttling")
+        try require(f.store.snapshotWrites - writes < 20 && f.store.logs.filter { $0.event == "sample" }.count < 10,
+                    "routine dynamic storage stays bounded")
+        try require(f.store.logs.contains { $0.event == "trend_score" }
+                    && f.store.logs.contains { $0.event == "sampling_rate_changed" }, "score and rate diagnostics")
+    }
+
+    private static func retimingPreservesAuthorization() async throws {
+        let f = try fixture()
+        f.sink.deferAuthorization = true
+        f.sampler.value = 0.40
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.10)
+        f.sampler.emit(0.195, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.sampler.starts == 1 && f.sampler.retimes == 2 && f.sampler.interval == 1.0 / 30,
+                    "retiming does not replace observation generation")
+        f.sink.completeAuthorization(true)
+        try require(f.sink.submissions == 1 && f.runtime.snapshot.submission?.result == .success,
+                    "still-qualified authorization survives sampling rate changes")
+    }
+
+    private static func samplingGap() async throws {
+        let f = try fixture()
+        f.sampler.value = 0.20
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.22, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(10)
+        f.sampler.emit(0.90, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.runtime.snapshot.trend?.baseline == nil && f.sampler.interval == 1 && f.sink.submissions == 0,
+                    "unobserved gap cannot fabricate a transition")
+        try require(f.store.logs.contains { $0.event == "sampling_gap" }, "gap diagnostic")
     }
 
     private static func retiredCommands() async throws {
@@ -714,12 +768,12 @@ import Foundation
         for _ in 0..<100 where !ready && listenerError == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         try require(ready, "actual loopback listener starts: \(listenerError ?? "timeout")")
         let client = LoopbackMonitorClient()
-        let configuration = MonitorConfiguration(revision: UUID().uuidString, pollInterval: 2)
+        let configuration = MonitorConfiguration(revision: UUID().uuidString, cooldown: 2)
         let applyData = try await client.send(SharedJSON.encoder().encode(MonitorRequest(command: .reloadConfiguration,
                                      expectedRevision: configuration.revision, configuration: configuration)), credentials: credentials)
         let applied = try SharedJSON.decoder().decode(MonitorReply.self, from: applyData)
         try require(applied.success && applied.identity == identity && applied.appliedRevision == configuration.revision
-                    && f.sampler.interval == 2, "actual TCP applies ordinary configuration to the real runtime")
+                    && f.sampler.interval == 1, "actual TCP applies ordinary configuration to the real runtime")
         for _ in 1...100 {
             f.clock.advance(2)
             f.sampler.emit(0.24, at: f.clock.now, uptime: f.clock.uptime)
@@ -808,12 +862,14 @@ private final class MemoryStore: MonitorStore {
 @MainActor private final class FakeSampler: BrightnessSampling {
     var receive: ((BrightnessReading) -> Void)?
     var starts = 0
+    var retimes = 0
     var interval: Double = 0
     var value = 0.24
     var active = false
     func start(interval: TimeInterval, receive: @escaping (BrightnessReading) -> Void) {
         starts += 1; active = true; self.interval = interval; self.receive = receive
     }
+    func updateInterval(_ interval: TimeInterval) { retimes += 1; self.interval = interval }
     func sampleNow(_ source: SampleSource) {
         receive?(BrightnessReading(value: value, source: source, timestamp: Date(timeIntervalSince1970: 1_700_000_000)))
     }

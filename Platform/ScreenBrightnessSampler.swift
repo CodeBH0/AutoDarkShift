@@ -1,11 +1,12 @@
 import Foundation
 import UIKit
 
-/// Owns UIKit and scheduling only. No VPN, threshold policy, notification, or storage.
+/// Owns UIKit and scheduling only. No VPN, scoring policy, notification, or storage.
 @MainActor final class ScreenBrightnessSampler: BrightnessSampling {
     private var observer: NSObjectProtocol?
     private var timer: Timer?
     private var generation = UUID()
+    private var timerGeneration = UUID()
     private var receive: ((BrightnessReading) -> Void)?
 
     func start(interval: TimeInterval, receive: @escaping (BrightnessReading) -> Void) {
@@ -20,10 +21,17 @@ import UIKit
                 self.sampleNow(.event)
             }
         }
+        updateInterval(interval)
+    }
+
+    func updateInterval(_ interval: TimeInterval) {
+        timer?.invalidate()
+        timerGeneration = UUID()
+        let token = timerGeneration
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             // The timer is installed exclusively on the main run loop. Avoid a queued Task per read.
             MainActor.assumeIsolated {
-                guard let self, self.generation == token else { return }
+                guard let self, self.timerGeneration == token, self.receive != nil else { return }
                 self.sampleNow(.poll)
             }
         }
@@ -41,6 +49,7 @@ import UIKit
 
     func stop() {
         generation = UUID()
+        timerGeneration = UUID()
         if let observer { NotificationCenter.default.removeObserver(observer) }
         observer = nil
         timer?.invalidate()

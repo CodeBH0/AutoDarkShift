@@ -170,9 +170,20 @@ assert all(not path.startswith("archive/") for path in local_files), "Archive en
 assert '"archive"' in (ROOT / "Package.swift").read_text(encoding="utf-8"), "Archive must be excluded from Swift Package"
 archive = ROOT / "archive/polling-rate-test-build8-2026-10-02"
 manifest = json.loads((archive / "MANIFEST.json").read_text(encoding="utf-8"))
+verified_files = 0
+missing_local_files = 0
 for relative, expected in manifest["files"].items():
-    assert hashlib.sha256((archive / relative).read_bytes()).hexdigest() == expected, f"Archive checksum mismatch: {relative}"
-print(f"PASS: retired test components excluded; {len(manifest['files'])} archived files match SHA-256.")
+    path = archive / relative
+    # Retired snapshots and artifacts are local-only; archive metadata stays versioned.
+    local_only = relative.startswith(("artifacts/", "source/"))
+    if local_only and not path.exists():
+        missing_local_files += 1
+        continue
+    assert path.is_file(), f"Missing archive metadata: {relative}"
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == expected, f"Archive checksum mismatch: {relative}"
+    verified_files += 1
+print(f"PASS: retired test components excluded; {verified_files} archived files match SHA-256; "
+      f"{missing_local_files} absent local-only snapshots/artifacts skipped.")
 print(f"PASS: OpenStep structure; {len(objects)} resolved objects; {len(local_files)} local project files.")
 print("PASS: 3 target source memberships, Debug/Release settings, extension embedding and dependency.")
 print("PASS: 4 XML plists/entitlements; shared App Group and provider identifiers.")

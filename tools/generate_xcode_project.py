@@ -51,7 +51,7 @@ extras = {
     "App": ["App/Info.plist", "App/AutoDarkShift.entitlements"],
     "PacketTunnel": ["PacketTunnel/Info.plist", "PacketTunnel/PacketTunnel.entitlements"],
     "Config": ["Config/Project.xcconfig", "Config/Local.xcconfig.example"],
-    "Docs": ["README.md", "WORK_VPN_BRIGHTNESS.md", "docs/DEVICE_ACCEPTANCE.md", "docs/STATIC_VALIDATION.md",
+    "Docs": ["README.md", "DEVELOPMENT.md", "docs/DEVICE_ACCEPTANCE.md", "docs/STATIC_VALIDATION.md",
              "docs/ARCHITECTURE.md", "docs/LOG_REPAIR.md", "Package.swift"],
 }
 for paths in extras.values():

@@ -34,8 +34,9 @@ flowchart TD
 | 开关状态 | `Shared/KeepAliveSwitchControl.swift` | 准备阶段保存待开启意图，之后跟随真实保活状态；失败复位与重复操作保护，与具体后端无关 |
 | 运行详情读取 | `Shared/MonitoringReadback.swift` | 区分可读取、暂不可读取和明确错误，控制自动重试；不把查询失败转换为保活或监听停止 |
 | 当前 VPN 适配器 | `KeepAlive/VPNKeepAliveService.swift` | VPN 配置、重新启用、连接状态、断开错误、嵌入扩展校验；通过独立 `MonitoringClient` 接口提供跨进程控制 |
-| VPN 运行载体 | `PacketTunnel/PacketTunnelProvider.swift` | 系统隧道设置、生命周期和组合依赖；调用监听的 start/stop/sleep/wake；不含阈值、亮度读取或通知内容 |
-| 监听业务 | `Monitoring/SwitchMonitor.swift` | 稳定时间、候选、冷却、去重、心跳、统计、配置和通知结果持久化；仅依赖 Foundation 与接口 |
+| VPN 运行载体 | `PacketTunnel/PacketTunnelProvider.swift` | 系统隧道设置、生命周期和组合依赖；调用监听的 start/stop/sleep/wake；不含评分、亮度读取或通知内容 |
+| 监听业务 | `Monitoring/SwitchMonitor.swift` | 趋势评分与动态采样、候选、冷却、去重、心跳、统计、配置和通知结果持久化；仅依赖 Foundation 与接口 |
+| 纯逻辑模型 | `Shared/ThresholdStateMachine.swift` 中的 `BrightnessTrendStateMachine` | 四项评分、0.20 秒速度窗、最近 10 次有效方向、五档采样和 0.30 秒低速退出；全部时间由调用方注入 |
 | 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | UIKit 主线程采样 / 事件 / 定时器，以及本地通知授权与提交 |
 | 监听控制 | `MonitoringClient`、`MonitorControlEndpoint`、`LocalMonitoringClient` | 查询、配置确认和诊断导出；与保活启停分离 |
 | 存储与协议 | `Shared/RuntimeStorage.swift` 等 | 配置、历史、快照、JSONL；通信版本 3，支持 `app-group-v1` 与 `local-ipc-v1` |
@@ -86,7 +87,8 @@ Provider start/stop 与独立监听不依赖 App 状态查询成功。`MonitorCh
 ## 生命周期约束
 
 - start 先初始化持久化状态，再开始真实采样；初次状态无法保存时清理采样资源并返回失败。
-- sleep/stop/reload 使旧采样回调失效，重置稳定计时。
+- sleep/stop/reload 使旧采样回调失效，清除趋势起点、速度窗口和方向历史。
+- 变频通过 `BrightnessSampling.updateInterval` 只更新定时器，不重装观察者、不使仍合格的通知授权回调失效。
 - 通知权限返回后再次检查运行阶段、采样代次和候选条件；旧候选不能继续提交。
 - 已交给系统的通知请求允许完成，结果先持久化，再完成所有停止回调。
 - query 和 handshake 只读快照，不更新心跳。心跳只来自真实采样。

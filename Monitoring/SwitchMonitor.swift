@@ -1,6 +1,6 @@
 import Foundation
 
-/// Backend-independent listening, threshold and notification lifecycle on the main actor.
+/// Backend-independent trend scoring, dynamic sampling and notification lifecycle.
 @MainActor
 final class SwitchMonitor: MonitoringRuntime {
     private let store: any MonitorStore
@@ -9,7 +9,7 @@ final class SwitchMonitor: MonitoringRuntime {
     private let diagnostic: (String) -> Void
     private let clock: () -> Date
     private let uptime: () -> TimeInterval
-    private var machine: ThresholdStateMachine
+    private var machine: BrightnessTrendStateMachine
     private(set) var snapshot: RuntimeSnapshot
     private var observationGeneration = UUID()
     private var lastSampleAt: Date?
@@ -33,7 +33,7 @@ final class SwitchMonitor: MonitoringRuntime {
         let configuration = try store.configuration()
         let previous = try store.snapshot()
         let history = try store.history()
-        machine = try ThresholdStateMachine(configuration: configuration, history: history)
+        machine = try BrightnessTrendStateMachine(configuration: configuration, history: history)
         var counters = previous?.counters ?? RuntimeCounters()
         counters.extensionStarts += 1
         snapshot = RuntimeSnapshot(instanceID: UUID().uuidString, history: history,
@@ -74,7 +74,7 @@ final class SwitchMonitor: MonitoringRuntime {
         guard snapshot.phase != .stopping else { return }
         stopFinalPhase = finalPhase
         removeSampling()
-        machine.resetStability()
+        machine.resetObservations()
         snapshot.phase = .stopping
         snapshot.heartbeatAt = nil
         record("monitor_stop", ["reason": reason])
@@ -86,7 +86,7 @@ final class SwitchMonitor: MonitoringRuntime {
     func sleep() {
         guard snapshot.phase == .running else { return }
         removeSampling()
-        machine.resetStability()
+        machine.resetObservations()
         snapshot.phase = .sleeping
         snapshot.heartbeatAt = nil
         record("monitor_sleep")
@@ -95,7 +95,7 @@ final class SwitchMonitor: MonitoringRuntime {
 
     func wake() {
         guard snapshot.phase == .sleeping else { return }
-        machine.resetStability()
+        machine.resetObservations()
         snapshot.phase = .running
         record("monitor_wake")
         installSampling()
@@ -136,11 +136,12 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func installSampling() {
-        let interval = machine.configuration.pollInterval
+        let interval = machine.pollInterval
         snapshot.activePollInterval = interval
         lastSampleAt = nil
         lastPollAt = nil
         lastSampleUptime = nil
+        lastSnapshotUptime = nil
         let generation = UUID()
         observationGeneration = generation
         sampler.start(interval: interval) { [weak self] reading in
@@ -163,14 +164,13 @@ final class SwitchMonitor: MonitoringRuntime {
         let now = reading.timestamp
         let source = reading.source
         let monotonicNow = reading.uptime ?? uptime()
-        let activeInterval = machine.configuration.pollInterval
-        // Short user-selected intervals still evaluate every read; bound routine disk writes.
-        let publish = activeInterval >= 1
-            || (lastSnapshotUptime.map { monotonicNow - $0 >= 1 } ?? true)
+        let activeInterval = machine.pollInterval
+        // Evaluate every read; event bursts must also respect the routine write cadence.
+        let publish = lastSnapshotUptime.map { monotonicNow - $0 >= 1 } ?? true
         let interval = lastSampleAt.map { now.timeIntervalSince($0) }
         // A long scheduling gap does not establish continuous satisfaction of a condition.
         if let previous = lastSampleUptime, monotonicNow - previous > max(2, activeInterval * 2) {
-            machine.resetStability()
+            machine.resetObservations()
             record("sampling_gap", ["seconds": String(monotonicNow - previous)])
         }
         lastSampleAt = now
@@ -200,19 +200,29 @@ final class SwitchMonitor: MonitoringRuntime {
             if publish { record("invalid_brightness", ["rawValue": String(actual), "source": source.rawValue]) }
         }
         let previousTarget = machine.pendingTarget
-        let previousSince = machine.stableSince
-        let candidate = machine.sample(brightness: actual, at: now)
-        if previousTarget != machine.pendingTarget || previousSince != machine.stableSince {
-            record("candidate_changed", ["target": machine.pendingTarget?.rawValue ?? "none",
-                                          "source": source.rawValue])
+        let candidate = machine.sample(brightness: actual, at: now, uptime: monotonicNow, source: source)
+        let samplingChanged = snapshot.activePollInterval != machine.pollInterval
+        if samplingChanged {
+            sampler.updateInterval(machine.pollInterval)
+            snapshot.activePollInterval = machine.pollInterval
+            record("sampling_rate_changed", trendFields().merging([
+                "previousFrequency": String(1 / activeInterval),
+                "frequency": String(1 / machine.pollInterval)
+            ]) { _, new in new })
         }
-        if publish { lastSnapshotUptime = monotonicNow; persist() }
+        if publish { record("trend_score", trendFields()) }
+        if previousTarget != machine.pendingTarget {
+            record("candidate_changed", ["target": machine.pendingTarget?.rawValue ?? "none",
+                                          "source": source.rawValue,
+                                          "score": machine.trend.map { String($0.score) } ?? "none"])
+        }
+        if publish || samplingChanged { lastSnapshotUptime = monotonicNow; persist() }
         if let candidate { submit(candidate, source: source) }
     }
 
     private func submit(_ candidate: NotificationCandidate, source: SampleSource) {
         let samplingGeneration = observationGeneration
-        let stableSinceAtRequest = machine.stableSince
+        let conditionAtRequest = machine.conditionID
         let identifier = "AutoDarkShift.Mode.\(candidate.id.uuidString)"
         snapshot.submission = SubmissionSnapshot(identifier: identifier, target: candidate.target,
             brightness: candidate.brightness, source: source, timestamp: clock(), result: .submitting)
@@ -221,7 +231,7 @@ final class SwitchMonitor: MonitoringRuntime {
             guard let self else { return }
             guard self.snapshot.phase == .running,
                   self.observationGeneration == samplingGeneration,
-                  self.machine.stableSince == stableSinceAtRequest,
+                  self.machine.conditionID == conditionAtRequest,
                   self.machine.pendingTarget == candidate.target else {
                 self.finish(candidate, result: .cancelled, detail: "监听已暂停、停止或候选条件已改变。")
                 return
@@ -271,7 +281,18 @@ final class SwitchMonitor: MonitoringRuntime {
         snapshot.history = machine.history
         snapshot.desiredTarget = machine.desiredTarget
         snapshot.pendingTarget = machine.pendingTarget
-        snapshot.stableSince = machine.stableSince
+        snapshot.trend = machine.trend
+    }
+
+    private func trendFields() -> [String: String] {
+        guard let trend = machine.trend else { return ["valid": "false"] }
+        return ["A": String(trend.position), "delta": String(trend.change),
+                "V": String(trend.speed), "D": String(trend.direction), "S": String(trend.score),
+                "velocity": String(trend.velocity), "baseline": trend.baseline.map { String($0) } ?? "none",
+                "effectiveChanges": String(trend.effectiveChanges),
+                "dynamicSampling": String(trend.dynamicSampling), "quietDuration": String(trend.quietDuration),
+                "source": snapshot.sample?.source.rawValue ?? "none",
+                "sequence": String(snapshot.counters.samples)]
     }
 
     private func persist() {

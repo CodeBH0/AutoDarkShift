@@ -23,15 +23,13 @@ struct ControlView: View {
                     if controller.busy { ProgressView("处理中") }
                 }
                 Section {
-                    numberField("深色阈值", value: $controller.configuration.darkThreshold)
-                    numberField("浅色阈值", value: $controller.configuration.lightThreshold)
-                    numberField("采样间隔（秒）", value: $controller.configuration.pollInterval)
-                    numberField("稳定时间（秒）", value: $controller.configuration.stableDuration)
+                    LabeledContent("评分切换条件", value: "≤ −0.50 深色；≥ 0.50 浅色")
+                    LabeledContent("自动采样频率", value: "1 / 10 / 30 / 60 / 120 Hz")
                     numberField("通知冷却（秒）", value: $controller.configuration.cooldown)
                     Button("保存并应用配置") { controller.saveConfiguration() }
                         .disabled(controller.busy)
-                } header: { Text("阈值设置") } footer: {
-                    Text("深色阈值须小于浅色阈值。中间区间不提交切换。若运行中无法确认新配置，重新开启保活即可使用保存的参数。")
+                } header: { Text("亮度趋势模型") } footer: {
+                    Text("依据屏幕亮度相对于上一稳定状态的变化评分。评分未达切换条件时保持既有目标；相同屏幕亮度轨迹无法区分真实环境照度。")
                 }
                 Section("切换监听") {
                     Label(controller.samplingText, systemImage: controller.samplingIsLive ? "waveform.path" : "info.circle")
@@ -45,6 +43,18 @@ struct ControlView: View {
                         LabeledContent("过期判定", value: "\(formatted(controller.heartbeatLimit)) 秒")
                         dateRow("最近轮询", snapshot.lastPollAt)
                         LabeledContent("实际轮询间隔", value: snapshot.lastPollInterval.map { "\(formatted($0)) 秒" } ?? "无")
+                        LabeledContent("目标轮询频率", value: snapshot.activePollInterval.map { "\(Int((1 / $0).rounded())) Hz" } ?? "未采样")
+                        if let trend = snapshot.trend {
+                            LabeledContent("趋势评分 S", value: formatted(trend.score))
+                            LabeledContent("亮度位置 A", value: formatted(trend.position))
+                            LabeledContent("累计变化 Δ", value: formatted(trend.change))
+                            LabeledContent("归一化速度 V", value: formatted(trend.speed))
+                            LabeledContent("方向一致性 D", value: formatted(trend.direction))
+                            LabeledContent("变化速度", value: "\(formatted(trend.velocity)) / 秒")
+                            LabeledContent("变化起始亮度", value: trend.baseline.map(formatted) ?? "等待明显变化")
+                            LabeledContent("动态采样", value: trend.dynamicSampling ? "进行中" : "常规 1 Hz")
+                            LabeledContent("连续低速时长", value: "\(formatted(trend.quietDuration)) 秒")
+                        }
                         if let sample = snapshot.sample {
                             LabeledContent("实际亮度", value: sample.brightness.map(formatted) ?? "非法输入：\(sample.rawValue)")
                             LabeledContent("数据来源", value: sample.source.rawValue)
@@ -52,9 +62,8 @@ struct ControlView: View {
                             LabeledContent("采样序号", value: String(sample.sequence))
                             LabeledContent("距上次采样", value: sample.actualInterval.map { "\(formatted($0)) 秒" } ?? "首次")
                         } else { Text("尚无采样记录") }
-                        LabeledContent("既有目标", value: snapshot.desiredTarget?.rawValue ?? "等待稳定条件")
+                        LabeledContent("既有目标", value: snapshot.desiredTarget?.rawValue ?? "等待趋势评分")
                         LabeledContent("待处理目标", value: snapshot.pendingTarget?.rawValue ?? "无")
-                        dateRow("稳定计时开始", snapshot.stableSince)
                         LabeledContent("配置已确认", value: controller.runtimeConfirmed && snapshot.appliedConfiguration == controller.configuration ? "是" : "未确认当前编辑配置")
                         Text("监听实例：\(snapshot.instanceID)").font(.caption).textSelection(.enabled)
                         if let error = snapshot.lastError { errorText("监听最近错误", error) }

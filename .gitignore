@@ -1,11 +1,40 @@
+# macOS metadata
 .DS_Store
+._*
+
+# SwiftPM / Xcode build output and caches
 .build/
 .swiftpm/
 DerivedData/
 build/
+*.ipa
+*.ipa.sha256
+*.xcarchive
+*.xcresult
+*.dSYM
+
+# Per-user Xcode state
 *.xcuserstate
 xcuserdata/
+*.xccheckout
+*.xcscmblueprint
+
+# Local signing configuration and credentials (keep *.example templates)
 Config/Local.xcconfig
-*.ipa
-*.xcarchive
-!archive/polling-rate-test-build8-2026-10-02/artifacts/*.ipa
+*.p12
+*.pfx
+*.cer
+*.key
+*.mobileprovision
+*.provisionprofile
+
+# Device exports, validation logs and retired local snapshots
+AutoDarkShift-*.jsonl
+*.log
+/archive/*/artifacts/
+/archive/*/source/
+/WORK_VPN_BRIGHTNESS.md
+
+# Python tool caches
+__pycache__/
+*.py[cod]

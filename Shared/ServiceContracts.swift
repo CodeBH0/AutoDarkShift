@@ -53,6 +53,8 @@ struct BrightnessReading {
 @MainActor protocol BrightnessSampling: AnyObject {
     /// Replaces any existing timer and observer; callbacks must be on the main actor.
     func start(interval: TimeInterval, receive: @escaping (BrightnessReading) -> Void)
+    /// Retimes polling without replacing the brightness observer or receive callback.
+    func updateInterval(_ interval: TimeInterval)
     func sampleNow(_ source: SampleSource)
     func stop()
 }

@@ -7,20 +7,10 @@ enum SubmissionResult: String, Codable { case submitting, success, failed, block
 
 struct MonitorConfiguration: Codable, Equatable {
     var revision = UUID().uuidString
-    var darkThreshold: Double = 0.20
-    var lightThreshold: Double = 0.28
-    var pollInterval: TimeInterval = 1
-    var stableDuration: TimeInterval = 1
     var cooldown: TimeInterval = 3
     func validated() throws -> Self {
-        guard darkThreshold.isFinite, lightThreshold.isFinite,
-              0 <= darkThreshold, darkThreshold < lightThreshold, lightThreshold <= 1 else {
-            throw ProjectError.message("阈值必须满足 0 ≤ 深色阈值 < 浅色阈值 ≤ 1。")
-        }
-        guard pollInterval.isFinite, pollInterval > 0,
-              stableDuration.isFinite, stableDuration >= 0,
-              cooldown.isFinite, cooldown >= 0 else {
-            throw ProjectError.message("采样间隔必须为有限正数，稳定时间和冷却时间必须为有限非负数。")
+        guard cooldown.isFinite, cooldown >= 0 else {
+            throw ProjectError.message("通知冷却时间必须为有限非负数。")
         }
         return self
     }
@@ -66,7 +56,7 @@ struct SubmissionSnapshot: Codable {
 }
 
 struct RuntimeSnapshot: Codable {
-    var schemaVersion = 1
+    var schemaVersion = 2
     var instanceID: String
     var phase: RuntimePhase = .starting
     var updatedAt = Date()
@@ -78,7 +68,7 @@ struct RuntimeSnapshot: Codable {
     var history: SubmissionHistory?
     var desiredTarget: DisplayMode?
     var pendingTarget: DisplayMode?
-    var stableSince: Date?
+    var trend: BrightnessTrendSnapshot?
     var appliedConfiguration: MonitorConfiguration
     var counters: RuntimeCounters
     var lastError: String?

@@ -3,219 +3,288 @@ import XCTest
 @testable import AutoDarkShiftCore
 #endif
 
-final class ThresholdStateMachineTests: XCTestCase {
-    private func time(_ seconds: TimeInterval) -> Date {
-        Date(timeIntervalSince1970: 1_700_000_000 + seconds)
+final class BrightnessTrendStateMachineTests: XCTestCase {
+    private func time(_ seconds: Double) -> Date { Date(timeIntervalSince1970: 1_700_000_000 + seconds) }
+    private func engine(cooldown: Double = 0, history: SubmissionHistory? = nil) throws -> BrightnessTrendStateMachine {
+        try BrightnessTrendStateMachine(configuration: MonitorConfiguration(cooldown: cooldown), history: history)
     }
-    private func engine(stable: TimeInterval = 1, cooldown: TimeInterval = 3,
-                        history: SubmissionHistory? = nil) throws -> ThresholdStateMachine {
-        try ThresholdStateMachine(configuration: MonitorConfiguration(stableDuration: stable, cooldown: cooldown), history: history)
+    private func sample(_ machine: inout BrightnessTrendStateMachine, _ brightness: Double,
+                        _ seconds: Double) -> NotificationCandidate? {
+        machine.sample(brightness: brightness, at: time(seconds), uptime: seconds)
     }
-    private func requireCandidate(_ value: NotificationCandidate?, file: StaticString = #filePath,
-                                  line: UInt = #line) throws -> NotificationCandidate {
-        try XCTUnwrap(value, file: file, line: line)
-    }
-
-    func testDarkBoundaryIsInclusiveAndRequiresStability() throws {
-        var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.20, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.20, at: time(0.999)))
-        let candidate = try requireCandidate(machine.sample(brightness: 0.20, at: time(1)))
-        XCTAssertEqual(candidate.target, .dark)
-        XCTAssertEqual(candidate.brightness, 0.20)
+    private func score(_ brightness: Double, baseline: Double? = nil, velocity: Double = 0,
+                       directions: [Int] = []) -> BrightnessTrendSnapshot {
+        BrightnessTrendModel.score(brightness: brightness, baseline: baseline, velocity: velocity,
+            directions: directions, dynamic: baseline != nil, quietDuration: 0)
     }
 
-    func testLightBoundaryIsInclusive() throws {
-        var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.28, at: time(0)))
-        XCTAssertEqual(machine.sample(brightness: 0.28, at: time(1))?.target, .light)
+    func testPositionAndComponentClipping() {
+        XCTAssertEqual(score(0.10).position, -1, accuracy: 1e-12)
+        XCTAssertEqual(score(0.25).position, 0)
+        XCTAssertEqual(score(0.40).position, 1, accuracy: 1e-12)
+        let upper = score(1, baseline: 0, velocity: 20, directions: [1, 1])
+        let lower = score(0, baseline: 1, velocity: -20, directions: [-1, -1])
+        XCTAssertEqual(upper.score, 1, accuracy: 1e-12)
+        XCTAssertEqual(lower.score, -1, accuracy: 1e-12)
+        XCTAssertEqual(upper.change, 1)
+        XCTAssertEqual(lower.speed, -1)
     }
 
-    func testZeroAndOneAreValid() throws {
-        var dark = try engine(stable: 0)
-        var light = try engine(stable: 0)
-        XCTAssertEqual(dark.sample(brightness: 0, at: time(0))?.target, .dark)
-        XCTAssertEqual(light.sample(brightness: 1, at: time(0))?.target, .light)
+    func testWeightedScoreAndDirectionFraction() {
+        let value = score(0.28, baseline: 0.25, velocity: 0.05, directions: [1, 1, -1])
+        XCTAssertEqual(value.position, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(value.change, 0.2, accuracy: 1e-12)
+        XCTAssertEqual(value.speed, 0.5)
+        XCTAssertEqual(value.direction, 1.0 / 3, accuracy: 1e-12)
+        XCTAssertEqual(value.score, 0.3033333333333333, accuracy: 1e-12)
     }
 
-    func testInitialMiddleBandWaits() throws {
-        var machine = try engine(stable: 0)
-        XCTAssertNil(machine.sample(brightness: 0.24, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.24, at: time(100)))
-        XCTAssertNil(machine.desiredTarget)
-        XCTAssertNil(machine.pendingTarget)
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(101))?.target, .dark)
+    func testInclusiveScoreBoundariesAndHoldBand() {
+        XCTAssertEqual(BrightnessTrendModel.target(for: 0.50), .light)
+        XCTAssertEqual(BrightnessTrendModel.target(for: -0.50), .dark)
+        XCTAssertNil(BrightnessTrendModel.target(for: 0.499999))
+        XCTAssertNil(BrightnessTrendModel.target(for: -0.499999))
     }
 
-    func testMiddleBandKeepsExistingTargetWithoutSubmission() throws {
-        let history = SubmissionHistory(target: .dark, submittedAt: time(0))
-        var machine = try engine(history: history)
-        XCTAssertNil(machine.sample(brightness: 0.24, at: time(10)))
-        XCTAssertEqual(machine.desiredTarget, .dark)
-        XCTAssertEqual(machine.history, history)
-        XCTAssertNil(machine.pendingTarget)
-    }
-
-    func testJitterResetsStabilityIncludingMiddleBand() throws {
-        var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.19, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.21, at: time(0.8)))
-        XCTAssertNil(machine.stableSince)
-        XCTAssertNil(machine.sample(brightness: 0.20, at: time(1)))
-        XCTAssertNil(machine.sample(brightness: 0.199, at: time(1.8)))
-        XCTAssertEqual(machine.sample(brightness: 0.19, at: time(2))?.target, .dark)
-    }
-
-    func testOppositeBoundaryResetsStability() throws {
-        var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(0.9)))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(1)))
-        XCTAssertEqual(machine.sample(brightness: 0.9, at: time(1.9))?.target, .light)
-    }
-
-    func testSuccessfulTargetDeduplicatesAndOppositeSwitches() throws {
-        var machine = try engine()
-        _ = machine.sample(brightness: 0.1, at: time(0))
-        let dark = try requireCandidate(machine.sample(brightness: 0.1, at: time(1)))
-        machine.complete(dark, succeeded: true, at: time(1))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(100)))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(101)))
-        let light = try requireCandidate(machine.sample(brightness: 0.9, at: time(102)))
-        XCTAssertEqual(light.target, .light)
-        machine.complete(light, succeeded: true, at: time(102))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(200)))
-    }
-
-    func testCooldownRetainsTargetAndFreshSampleAtEndEmits() throws {
-        var machine = try engine(stable: 0)
-        let dark = try requireCandidate(machine.sample(brightness: 0.1, at: time(0)))
-        machine.complete(dark, succeeded: true, at: time(0))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(1)))
-        XCTAssertEqual(machine.pendingTarget, .light)
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(2.999)))
-        let light = try requireCandidate(machine.sample(brightness: 0.8, at: time(3)))
-        XCTAssertEqual(light.target, .light)
-        XCTAssertEqual(light.brightness, 0.8)
-    }
-
-    func testCooldownDoesNotEmitObsoletePendingTarget() throws {
-        var machine = try engine(stable: 0)
-        let dark = try requireCandidate(machine.sample(brightness: 0.1, at: time(0)))
-        machine.complete(dark, succeeded: true, at: time(0))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(1)))
-        XCTAssertNil(machine.sample(brightness: 0.24, at: time(3)))
-        XCTAssertNil(machine.pendingTarget)
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(4)))
-    }
-
-    func testFailureRetainsTargetAndRetriesAfterCooldownFromCompletion() throws {
-        var machine = try engine(stable: 0)
-        let first = try requireCandidate(machine.sample(brightness: 0.1, at: time(0)))
-        machine.complete(first, succeeded: false, at: time(0.5))
-        XCTAssertNil(machine.history)
-        XCTAssertEqual(machine.pendingTarget, .dark)
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(3.499)))
-        let retry = try requireCandidate(machine.sample(brightness: 0.12, at: time(3.5)))
-        XCTAssertEqual(retry.target, .dark)
-        XCTAssertNotEqual(retry.id, first.id)
-        XCTAssertEqual(retry.brightness, 0.12)
-        machine.complete(retry, succeeded: true, at: time(3.5))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(10)))
-    }
-
-    func testRestoredHistoryDeduplicatesAndRestoresCooldown() throws {
-        let history = SubmissionHistory(target: .light, submittedAt: time(10))
-        var machine = try engine(stable: 1, history: history)
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(10.5)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(11)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(12)))
-        XCTAssertEqual(machine.pendingTarget, .dark)
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(13))?.target, .dark)
-    }
-
-    func testIllegalBrightnessNeverEmitsAndResetsStability() throws {
-        for invalid in [Double.nan, .infinity, -.infinity, -0.01, 1.01] {
+    func testConstantScreenBrightnessDoesNotInferAnEnvironmentTransition() throws {
+        for brightness in [0.0, 0.10, 0.25, 0.40, 1.0] {
             var machine = try engine()
-            XCTAssertNil(machine.sample(brightness: 0.1, at: time(0)))
-            XCTAssertNil(machine.sample(brightness: invalid, at: time(1)))
-            XCTAssertNil(machine.stableSince)
-            XCTAssertNil(machine.sample(brightness: 0.1, at: time(1.1)))
-            XCTAssertNil(machine.sample(brightness: 0.1, at: time(2)))
-            XCTAssertEqual(machine.sample(brightness: 0.1, at: time(2.1))?.target, .dark)
+            XCTAssertNil(sample(&machine, brightness, 0))
+            XCTAssertNil(sample(&machine, brightness, 1))
+            XCTAssertNil(machine.desiredTarget)
+            XCTAssertEqual(machine.pollInterval, 1)
+            XCTAssertEqual(machine.trend?.change, 0)
         }
     }
 
-    func testOneInFlightRequestAndStaleCompletionIgnored() throws {
-        var machine = try engine(stable: 0, cooldown: 0)
-        let first = try requireCandidate(machine.sample(brightness: 0.1, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(10)))
-        machine.complete(first, succeeded: false, at: time(10))
-        let retry = try requireCandidate(machine.sample(brightness: 0.1, at: time(11)))
-        machine.complete(first, succeeded: true, at: time(12))
-        XCTAssertNil(machine.history)
-        XCTAssertEqual(machine.inFlight?.id, retry.id)
-    }
-
-    func testOppositeConditionDuringInFlightRemainsPending() throws {
-        var machine = try engine(stable: 0, cooldown: 3)
-        let dark = try requireCandidate(machine.sample(brightness: 0.1, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(1)))
-        machine.complete(dark, succeeded: true, at: time(1))
-        XCTAssertEqual(machine.pendingTarget, .light)
-        XCTAssertNil(machine.sample(brightness: 0.9, at: time(3)))
-        XCTAssertEqual(machine.sample(brightness: 0.9, at: time(4))?.target, .light)
-    }
-
-    func testConfigurationChangeRequiresNewStability() throws {
+    func testTriggerUsesPreviousReadingAsBaseline() throws {
         var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(0)))
-        try machine.updateConfiguration(MonitorConfiguration(stableDuration: 2))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(1)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(2)))
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(3))?.target, .dark)
+        _ = sample(&machine, 0.20, 0)
+        XCTAssertNil(sample(&machine, 0.22, 1))
+        XCTAssertEqual(machine.trend?.baseline, 0.20)
+        XCTAssertEqual(machine.trend!.velocity, 0.02, accuracy: 1e-12)
+        XCTAssertEqual(machine.pollInterval, 0.1)
+        XCTAssertEqual(machine.trend?.direction, 1)
     }
 
-    func testSleepResetCannotCountSleepAsStableTime() throws {
+    func testSubTriggerSpeedStaysAtOneHz() throws {
         var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(0)))
-        machine.resetStability()
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(300)))
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(301))?.target, .dark)
+        _ = sample(&machine, 0.25, 0)
+        _ = sample(&machine, 0.26, 1)
+        XCTAssertEqual(machine.pollInterval, 1)
+        XCTAssertNil(machine.trend?.baseline)
     }
 
-    func testBackwardsClockResetsStableTimer() throws {
+    func testEventBurstCannotShortenNormalOneSecondVelocityScale() throws {
         var machine = try engine()
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(10)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(5)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(5.9)))
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(6))?.target, .dark)
+        _ = sample(&machine, 0.20, 0)
+        XCTAssertNil(machine.sample(brightness: 0.30, at: time(0.001), uptime: 0.001, source: .event))
+        XCTAssertEqual(machine.pollInterval, 1)
+        XCTAssertEqual(machine.trend?.velocity, 0)
+        XCTAssertNil(sample(&machine, 0.22, 1))
+        XCTAssertEqual(machine.trend!.velocity, 0.02, accuracy: 1e-12)
+        XCTAssertEqual(machine.trend?.baseline, 0.20)
+        XCTAssertEqual(machine.trend?.direction, 1)
+        _ = machine.sample(brightness: 0.23, at: time(1.1), uptime: 1.1, source: .event)
+        XCTAssertEqual(machine.trend!.velocity, 0.10, accuracy: 1e-12)
     }
 
-    func testRestoredFutureTimestampDoesNotBlockIndefinitely() throws {
-        let history = SubmissionHistory(target: .light, submittedAt: time(100))
-        var machine = try engine(stable: 0, history: history)
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(0)))
-        XCTAssertNil(machine.sample(brightness: 0.1, at: time(2.99)))
-        XCTAssertEqual(machine.sample(brightness: 0.1, at: time(3))?.target, .dark)
+    func testDynamicRateBoundariesAreSymmetric() {
+        for (velocity, frequency) in [(0.0, 10.0), (0.015, 10), (0.029999, 10), (0.03, 30),
+                                      (0.059999, 30), (0.06, 60), (0.099999, 60), (0.10, 120), (1, 120)] {
+            XCTAssertEqual(BrightnessTrendModel.dynamicFrequency(for: velocity), frequency)
+            XCTAssertEqual(BrightnessTrendModel.dynamicFrequency(for: -velocity), frequency)
+        }
+    }
+
+    func testHighRateUsesTimeWindowRatherThanAdjacentJump() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        _ = sample(&machine, 0.23, 1)
+        for i in 1...24 { _ = sample(&machine, 0.23, 1 + Double(i) / 120) }
+        _ = sample(&machine, 0.24, 1.21)
+        XCTAssertEqual(machine.trend!.velocity, 0.05, accuracy: 1e-10)
+        XCTAssertEqual(machine.pollInterval, 1.0 / 30)
+    }
+
+    func testWindowInterpolatesIrregularSamplesAcrossRateChanges() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        _ = sample(&machine, 0.22, 1)
+        _ = sample(&machine, 0.23, 1.10)
+        _ = sample(&machine, 0.239, 1.19)
+        _ = sample(&machine, 0.253, 1.33)
+        XCTAssertEqual(machine.trend!.velocity, 0.10, accuracy: 1e-10)
+        XCTAssertEqual(machine.trend!.baseline!, 0.20)
+    }
+
+    func testNoiseDoesNotEnterDirectionStatistics() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.25, 0)
+        _ = sample(&machine, 0.27, 1)
+        _ = sample(&machine, 0.271, 1.05)
+        _ = sample(&machine, 0.270, 1.10)
+        XCTAssertEqual(machine.trend?.effectiveChanges, 1)
+        XCTAssertEqual(machine.trend?.direction, 1)
+    }
+
+    func testDirectionHistoryContainsLastTenEffectiveChanges() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.30, 0)
+        _ = sample(&machine, 0.40, 1)
+        for i in 1...10 { _ = sample(&machine, 0.40 - 0.01 * Double(i), 1 + 0.05 * Double(i)) }
+        XCTAssertEqual(machine.trend?.effectiveChanges, 10)
+        XCTAssertEqual(machine.trend?.direction, -1)
+    }
+
+    func testExitUsesElapsedTimeAtEveryDynamicRate() throws {
+        for rate in [10.0, 30, 60, 120] {
+            var machine = try engine()
+            _ = sample(&machine, 0.25, 0)
+            _ = sample(&machine, 0.27, 1)
+            _ = sample(&machine, 0.27, 1.01)
+            for i in 1...Int(rate * 0.30) - 1 {
+                _ = sample(&machine, 0.27, 1.01 + Double(i) / rate)
+                XCTAssertTrue(machine.trend!.dynamicSampling)
+            }
+            _ = sample(&machine, 0.27, 1.31)
+            XCTAssertFalse(machine.trend!.dynamicSampling)
+            XCTAssertEqual(machine.pollInterval, 1)
+            XCTAssertNil(machine.trend?.baseline)
+            XCTAssertEqual(machine.trend?.effectiveChanges, 0)
+        }
+    }
+
+    func testNonQuietSampleRestartsExitTimer() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        _ = sample(&machine, 0.22, 1)
+        _ = sample(&machine, 0.22, 1.10)
+        _ = sample(&machine, 0.23, 1.25)
+        XCTAssertEqual(machine.trend?.quietDuration, 0)
+        _ = sample(&machine, 0.23, 1.46)
+        _ = sample(&machine, 0.23, 1.75)
+        XCTAssertTrue(machine.trend!.dynamicSampling)
+        _ = sample(&machine, 0.23, 1.76)
+        XCTAssertEqual(machine.pollInterval, 1)
+    }
+
+    func testScoreTriggersWithoutLegacyStableDelay() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        let candidate = try XCTUnwrap(sample(&machine, 0.35, 1))
+        XCTAssertEqual(candidate.target, .light)
+        XCTAssertEqual(candidate.brightness, 0.35)
+        XCTAssertGreaterThanOrEqual(machine.trend!.score, 0.50)
+    }
+
+    func testSuccessDeduplicatesAndOppositeTrendSwitches() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        let light = try XCTUnwrap(sample(&machine, 0.35, 1))
+        machine.complete(light, succeeded: true, at: time(1))
+        XCTAssertNil(sample(&machine, 0.36, 1.10))
+        machine.resetObservations()
+        _ = sample(&machine, 0.40, 2)
+        let dark = try XCTUnwrap(sample(&machine, 0.20, 3))
+        XCTAssertEqual(dark.target, .dark)
+    }
+
+    func testCooldownRechecksCurrentScoreAndRetriesFailure() throws {
+        var machine = try engine(cooldown: 1)
+        _ = sample(&machine, 0.40, 0)
+        let first = try XCTUnwrap(sample(&machine, 0.20, 1))
+        machine.complete(first, succeeded: false, at: time(1))
+        XCTAssertNil(sample(&machine, 0.18, 1.5))
+        XCTAssertEqual(machine.pendingTarget, .dark)
+        let retry = try XCTUnwrap(sample(&machine, 0.16, 2))
+        XCTAssertEqual(retry.target, .dark)
+        XCTAssertNotEqual(first.id, retry.id)
+    }
+
+    func testHoldBandInvalidatesPendingRequest() throws {
+        var machine = try engine(cooldown: 3)
+        _ = sample(&machine, 0.20, 0)
+        let first = try XCTUnwrap(sample(&machine, 0.35, 1))
+        machine.complete(first, succeeded: false, at: time(1))
+        _ = sample(&machine, 0.35, 1.1)
+        _ = sample(&machine, 0.35, 1.4)
+        XCTAssertNil(machine.pendingTarget)
+        XCTAssertNil(sample(&machine, 0.35, 4))
+    }
+
+    func testHistoryAndCooldownSurviveRestart() throws {
+        let history = SubmissionHistory(target: .light, submittedAt: time(0))
+        var machine = try engine(cooldown: 3, history: history)
+        _ = sample(&machine, 0.40, 0)
+        XCTAssertNil(sample(&machine, 0.20, 1))
+        XCTAssertEqual(machine.pendingTarget, .dark)
+        _ = sample(&machine, 0.18, 2)
+        XCTAssertEqual(sample(&machine, 0.16, 3)?.target, .dark)
         XCTAssertEqual(machine.history, history)
     }
 
-    func testInvalidConfigurationRejectedWithoutMutatingEngine() throws {
+    func testOneInFlightAndStaleCompletionIgnored() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.40, 0)
+        let first = try XCTUnwrap(sample(&machine, 0.20, 1))
+        XCTAssertNil(sample(&machine, 0.18, 1.1))
+        machine.complete(first, succeeded: false, at: time(1.1))
+        let retry = try XCTUnwrap(sample(&machine, 0.16, 1.2))
+        machine.complete(first, succeeded: true, at: time(1.2))
+        XCTAssertEqual(machine.inFlight?.id, retry.id)
+        XCTAssertNil(machine.history)
+    }
+
+    func testInvalidInputResetsTrendAndSampling() throws {
+        for invalid in [Double.nan, .infinity, -.infinity, -0.01, 1.01] {
+            var machine = try engine()
+            _ = sample(&machine, 0.20, 0)
+            _ = sample(&machine, 0.22, 1)
+            XCTAssertNil(sample(&machine, invalid, 1.1))
+            XCTAssertNil(machine.trend)
+            XCTAssertEqual(machine.pollInterval, 1)
+            XCTAssertNil(sample(&machine, 0.80, 2))
+        }
+    }
+
+    func testDuplicateAndBackwardsMonotonicTimesCannotCreateVelocity() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 10)
+        XCTAssertNil(sample(&machine, 0.90, 10))
+        XCTAssertEqual(machine.trend!.position, -1.0 / 3, accuracy: 1e-12)
+        XCTAssertNil(sample(&machine, 0.90, 5))
+        XCTAssertEqual(machine.trend?.velocity, 0)
+        XCTAssertEqual(machine.pollInterval, 1)
+    }
+
+    func testWallClockChangeDoesNotAlterMonotonicVelocity() throws {
+        var machine = try engine()
+        _ = machine.sample(brightness: 0.20, at: time(1000), uptime: 0)
+        _ = machine.sample(brightness: 0.22, at: time(5), uptime: 1)
+        XCTAssertEqual(machine.trend!.velocity, 0.02, accuracy: 1e-12)
+        XCTAssertEqual(machine.pollInterval, 0.1)
+    }
+
+    func testSleepAndConfigurationResetClearBaseline() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.20, 0)
+        _ = sample(&machine, 0.22, 1)
+        machine.resetObservations()
+        XCTAssertNil(sample(&machine, 0.40, 300))
+        XCTAssertNil(machine.trend?.baseline)
+        _ = sample(&machine, 0.38, 301)
+        try machine.updateConfiguration(MonitorConfiguration(cooldown: 5))
+        XCTAssertNil(machine.trend)
+        XCTAssertEqual(machine.pollInterval, 1)
+        XCTAssertNil(sample(&machine, 0.10, 302))
+    }
+
+    func testInvalidConfigurationCannotMutateState() throws {
         var machine = try engine()
         let original = machine.configuration
-        let invalid = [
-            MonitorConfiguration(darkThreshold: 0.28, lightThreshold: 0.28),
-            MonitorConfiguration(darkThreshold: -0.01),
-            MonitorConfiguration(lightThreshold: 1.01),
-            MonitorConfiguration(darkThreshold: .nan),
-            MonitorConfiguration(pollInterval: 0),
-            MonitorConfiguration(pollInterval: .infinity),
-            MonitorConfiguration(stableDuration: -1),
-            MonitorConfiguration(cooldown: -1)
-        ]
-        for configuration in invalid {
-            XCTAssertThrowsError(try machine.updateConfiguration(configuration))
+        for cooldown in [-1.0, .nan, .infinity] {
+            XCTAssertThrowsError(try machine.updateConfiguration(MonitorConfiguration(cooldown: cooldown)))
             XCTAssertEqual(machine.configuration, original)
         }
     }
