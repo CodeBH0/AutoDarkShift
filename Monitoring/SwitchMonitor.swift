@@ -17,6 +17,7 @@ final class SwitchMonitor: MonitoringRuntime {
     private var lastSampleUptime: TimeInterval?
     private var lastSnapshotUptime: TimeInterval?
     private var historyNeedsSave = false
+    private var notificationStartedID: UUID?
     private var stopCallbacks: [() -> Void] = []
     private var stopFinalPhase: RuntimePhase = .stopped
 
@@ -222,24 +223,24 @@ final class SwitchMonitor: MonitoringRuntime {
 
     private func submit(_ candidate: NotificationCandidate, source: SampleSource) {
         let samplingGeneration = observationGeneration
-        let conditionAtRequest = machine.conditionID
         let identifier = "AutoDarkShift.Mode.\(candidate.id.uuidString)"
         snapshot.submission = SubmissionSnapshot(identifier: identifier, target: candidate.target,
             brightness: candidate.brightness, source: source, timestamp: clock(), result: .submitting)
         persist()
         notifications.authorization { [weak self] authorized, authorizationDescription in
             guard let self else { return }
+            guard self.machine.inFlight?.id == candidate.id,
+                  self.notificationStartedID != candidate.id else { return }
             guard self.snapshot.phase == .running,
-                  self.observationGeneration == samplingGeneration,
-                  self.machine.conditionID == conditionAtRequest,
-                  self.machine.pendingTarget == candidate.target else {
-                self.finish(candidate, result: .cancelled, detail: "监听已暂停、停止或候选条件已改变。")
+                  self.observationGeneration == samplingGeneration else {
+                self.finish(candidate, result: .cancelled, detail: "监听已暂停、停止或配置已重新应用；请求尚未提交通知中心。")
                 return
             }
             guard authorized else {
                 self.finish(candidate, result: .blocked, detail: "通知权限不足，authorizationStatus=\(authorizationDescription)。采样继续。")
                 return
             }
+            self.notificationStartedID = candidate.id
             self.snapshot.counters.notificationAttempts += 1
             self.record("notification_submit", ["identifier": identifier, "target": candidate.target.rawValue,
                                                  "brightness": String(candidate.brightness), "source": source.rawValue])
@@ -253,7 +254,8 @@ final class SwitchMonitor: MonitoringRuntime {
     private func finish(_ candidate: NotificationCandidate, result: SubmissionResult, detail: String?) {
         guard machine.inFlight?.id == candidate.id else { return }
         let now = clock()
-        machine.complete(candidate, succeeded: result == .success, at: now)
+        machine.complete(candidate, result: result, at: now)
+        notificationStartedID = nil
         snapshot.submission?.timestamp = now
         snapshot.submission?.result = result
         snapshot.submission?.detail = detail

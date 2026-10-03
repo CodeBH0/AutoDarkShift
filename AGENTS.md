@@ -7,3 +7,4 @@
 - `archive/` 只提交历史轮询实验的说明与校验清单；旧源码、产物和原始需求文档按云端整理留在本地并忽略。需要旧源码时查阅原始提交 `0cb2f8c`，不用归档版本覆盖当前实现。
 - 修改工程或仓库配置后运行 `python3 tools/validate_project.py`，并检查 `git diff --check`。核心行为修改再运行 `python3 tools/run_core_checks.py` 和 Swift Package XCTest；真实 TCP 场景需要允许本机监听，相关环境要求见 `docs/STATIC_VALIDATION.md`。
 - 编译、模拟输入测试和占位签名不代表真机验收通过；只报告实际执行的验证范围。
+- 每次打包必须递增 build 号，主 App 与扩展保持一致；使用 `tools/package_ipa.sh` 自动递增。已有 IPA、校验文件、归档和日志按 build 保留，不覆盖、不回退构建号。

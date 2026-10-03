@@ -1,6 +1,6 @@
 # AutoDarkShift 开发说明
 
-本文保留原本地 README 中的开发资料，供开发者和 Codex 查阅。根目录 [README.md](README.md) 于 2026-10-03 从 [GitHub main](https://github.com/CodeBH0/AutoDarkShift/blob/main/README.md) 下载并保留原文；云端当时为 1.0.0 / build 9，包含旧阈值算法说明。当前源码为 1.0.1 / build 10，开发和验收应结合本文、[趋势模型说明](docs/TREND_MODEL.md)及实际源码，避免照旧版本说明回退实现。Codex 的入口指引见 [AGENTS.md](AGENTS.md)。
+本文保留原本地 README 中的开发资料，供开发者和 Codex 查阅。根目录 [README.md](README.md) 于 2026-10-03 从 [GitHub main](https://github.com/CodeBH0/AutoDarkShift/blob/main/README.md) 下载并保留原文；云端当时为 1.0.0 / build 9，包含旧阈值算法说明。当前版本以 `Config/Project.xcconfig` 为准，开发和验收应结合本文、[趋势模型说明](docs/TREND_MODEL.md)及实际源码，避免照旧版本说明回退实现。Codex 的入口指引见 [AGENTS.md](AGENTS.md)。
 
 ## Git 文件管理
 
@@ -17,7 +17,7 @@
 
 iOS 17+ 亮度自动切换验证工程。主 App 管理保活、通知权限和配置；当前仍由 VPN 的 Packet Tunnel 进程运行独立切换监听模块，读取亮度、计算趋势评分并提交 `dark` / `light` 本地通知。外部快捷指令负责切换系统外观。
 
-版本 **1.0.1 / build 10** 按 [MathModel v1](MathModel%20v1.md) 第 1–4 章和第 8 章实现亮度趋势评分与动态采样。评分为 `S = 0.25A + 0.35Δ + 0.30V + 0.10D`，`S ≥ 0.50` 请求浅色，`S ≤ −0.50` 请求深色，其余保持既有目标。常规 1 Hz，动态采样按速度选择 10 / 30 / 60 / 120 Hz。实现约定和边界见 [趋势模型说明](docs/TREND_MODEL.md)。
+版本 **1.0.1** 按 [MathModel v1](MathModel%20v1.md) 第 1–4 章和第 8 章实现亮度趋势评分与动态采样。评分为 `S = 0.25A + 0.35Δ + 0.30V + 0.10D`，`S ≥ 0.50` 请求浅色，`S ≤ −0.50` 请求深色，其余保持既有目标。常规 1 Hz，动态采样按速度选择 10 / 30 / 60 / 120 Hz。实现约定和边界见 [趋势模型说明](docs/TREND_MODEL.md)。
 
 模型观测系统屏幕亮度，不观测真实环境照度；相同亮度轨迹不能区分真实环境。首次读数只建立基准，静止亮度本身不足以触发趋势切换。旧亮度阈值、固定采样间隔、稳定时间及 Boost 字段不再影响算法；保留通知冷却配置、成功历史去重与日志回传。第 5–7 章不作为本次实现或验收依据。
 
@@ -31,7 +31,7 @@ Provider Message 不可用时使用仅本机的认证 TCP 通道，扩展日志�
 
 ## 当前验证状态
 
-已通过 25 项趋势模型测试、43 项运行时回归、工程静态检查和 iPhone arm64 Release 归档 / IPA 打包（XCTest 总计 26 个方法，0 失败）。实际范围和命令见 [验证记录](docs/STATIC_VALIDATION.md)。真实证书签名、安装与 iPhone 上的亮度、VPN、后台行为需要按 [真机验收表](docs/DEVICE_ACCEPTANCE.md) 记录；编译和模拟输入回归不能替代这些结论。
+2026-10-03 状态机修复已通过 29 项模型测试、48 项运行时回归及工程静态检查（XCTest 总计 30 个方法，0 失败）。随后已使用修复后的当前源码完成 iPhone arm64 Release 归档和 IPA 打包，两个组件均为 1.0.1 / build 11；版本、权限、占位签名、ZIP 与 SHA-256 校验通过。错误覆盖的 build 10 产物已删除，未尝试恢复。实际范围和命令见 [验证记录](docs/STATIC_VALIDATION.md)。真实证书签名、安装与 iPhone 上的亮度、VPN、后台行为需要按 [真机验收表](docs/DEVICE_ACCEPTANCE.md) 记录；编译和模拟输入回归不能替代这些结论。
 
 ## 签名与安装
 
@@ -44,7 +44,7 @@ Provider Message 不可用时使用仅本机的认证 TCP 通道，扩展日志�
 
 `Config/Local.xcconfig` 已列入忽略规则；工程没有个人团队 ID、证书、凭据或远程服务器配置。App 与扩展的版本号和 build number 统一继承 `Config/Project.xcconfig`。
 
-如需在 iPhone 上使用 p12 重新签名，可运行 `bash tools/package_ipa.sh` 生成 `build/AutoDarkShift-1.0.1-build10-resign.ipa`。该包仅有携带权限的本地占位签名，需用自己的证书和匹配的描述文件重签主 App 与扩展。标识符、App Group 同步要求及实际验证范围见 [IPA 重签说明](docs/IPA_SIGNING.md)。
+如需在 iPhone 上使用 p12 重新签名，可运行 `bash tools/package_ipa.sh`。脚本每次自动递增共享 build 号，即使构建失败也不回退；运行前不需要手动递增。IPA 与校验文件包含 build 号，归档、缓存、权限文件和编译日志分别保存在 `build/build<编号>/`，已有产物拒绝覆盖。当前产物为 `build/AutoDarkShift-1.0.1-build11-resign.ipa`。该包仅有携带权限的本地占位签名，需用自己的证书和匹配的描述文件重签主 App 与扩展。标识符、App Group 同步要求及实际验证范围见 [IPA 重签说明](docs/IPA_SIGNING.md)。
 
 ## 构建与纯逻辑测试
 
@@ -63,9 +63,10 @@ xcodebuild -project AutoDarkShift.xcodeproj -scheme AutoDarkShiftCore \
 # 状态机及运行时回归也可由 Swift Package 运行；不依赖 UIKit 或 iOS SDK。
 swift test
 
-# 真机归档；需要先填写签名配置。
+# 手动真机归档；先填写签名配置，并在公共配置中递增 build 号。
+# 将 <N> 替换为本次 build 号并使用新的归档路径；重签 IPA 优先使用自动打包脚本。
 xcodebuild -project AutoDarkShift.xcodeproj -scheme AutoDarkShift \
-  -destination 'generic/platform=iOS' -archivePath build/AutoDarkShift.xcarchive \
+  -destination 'generic/platform=iOS' -archivePath 'build/signed-build<N>/AutoDarkShift.xcarchive' \
   -allowProvisioningUpdates archive
 ```
 
@@ -91,7 +92,7 @@ python3 tools/run_core_checks.py --isolate-clt-headers
 6. 用“发送测试通知”检查权限与前台横幅，测试标题是 `AutoDarkShift.Test`，不修改正常目标历史或扩展通知计数。
 7. 用“导出运行日志”打开标准系统分享界面，保存 JSONL 文件。共享模式可直接导出监听日志；本地模式在 VPN 运行时通过系统消息或认证本机通道取回扩展日志，分块校验后原子保存到 App。关闭保活后仍可导出已同步记录；未同步的私有文件需重新开启保活后取回。缓存保留原采样时间。导出会保留实际取得的记录和失败标记。
 
-界面显示评分 S、亮度位置 A、累计变化 Δ、归一化速度 V、方向一致性 D、变化起点与目标频率。速度和动态退出时长使用单调时间；高速时在 `t − 0.20 秒` 处插值估计速度，不随轮询档位改变比较尺度。连续低于 `0.01 / 秒` 达 `0.30 秒` 后回到 1 Hz，清除本轮起点与方向记录。
+界面显示评分 S、亮度位置 A、累计变化 Δ、归一化速度 V、方向一致性 D、变化起点与目标频率。速度和动态退出时长使用单调时间；高速时在 `t − 0.20 秒` 处插值估计速度，不随轮询档位改变比较尺度。连续低于 `0.01 / 秒` 达 `0.30 秒` 后回到 1 Hz，清除速度窗口与方向记录，并保留本轮 baseline，让累计变化 Δ 在稳定阶段仍有效。
 
 采样停顿超过 `max(2 秒, 当前生效轮询间隔 × 2)` 会记录 `sampling_gap` 并清除趋势；睡眠、唤醒、非法输入和配置更新也会重置。频率变化仅重设轮询定时器，亮度事件观察者和通知候选的采样代次保持连续。高速常规采样 / 评分日志最多每秒写入一次，档位变化和通知结果即时记录；不能用日志条数反推真实采样频率，需查看计数和实际间隔。
 
@@ -113,7 +114,7 @@ python3 tools/run_core_checks.py --isolate-clt-headers
 
 每次请求使用新的 UUID；正文亮度按三位小数格式化，日志保留实际读数。授权不足时继续采样，结果为 `blocked`；`add` 返回错误为 `failed`；无错误为 `success`，仅表示系统接受请求。通知可能被专注模式、摘要或用户的横幅设置影响。只有成功提交会更新去重历史；失败或权限不足按冷却间隔重试，每次重试需要新的合格样本。同一时刻最多一个请求在途。
 
-评分处于 `(−0.50, 0.50)` 时保留既有目标，不产生通知，并取消待处理候选。冷却期间评分合格的目标保留为 `pendingTarget`，冷却结束后由新样本再次确认评分；离开条件不能继续提交旧候选。重启从成功历史恢复去重和冷却，历史代表最近提交的请求，并非系统当前外观。
+评分处于 `(−0.50, 0.50)` 时保留既有目标，不产生通知，并清除尚未进入 inFlight 的待处理目标。冷却期间评分合格的目标保留为 `pendingTarget`，冷却结束后由新样本再次确认评分；尚未进入 inFlight 的目标离开条件后不能继续提交；已进入 inFlight 的候选保持原始目标、亮度与来源，后续普通采样不取消授权与提交。生命周期代次失效可取消未提交请求，cancelled 不推进冷却，也不清除以前的冷却记录。重启从成功历史恢复去重和冷却，历史代表最近提交的请求，并非系统当前外观。
 
 ## 状态、日志和诊断
 

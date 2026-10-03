@@ -69,7 +69,6 @@ struct BrightnessTrendStateMachine {
     private(set) var inFlight: NotificationCandidate?
     private(set) var trend: BrightnessTrendSnapshot?
     private(set) var pollInterval = BrightnessTrendModel.normalPollInterval
-    private(set) var conditionID = UUID()
     private var lastAttemptAt: Date?
     private var previous: Observation?
     private var normalReference: Observation?
@@ -108,7 +107,6 @@ struct BrightnessTrendStateMachine {
         trend = nil
         pollInterval = BrightnessTrendModel.normalPollInterval
         pendingTarget = nil
-        conditionID = UUID()
     }
 
     mutating func sample(brightness: Double, at now: Date, uptime: TimeInterval? = nil,
@@ -156,7 +154,7 @@ struct BrightnessTrendStateMachine {
                 quietDuration = time - (quietSince ?? time)
                 if quietDuration + 1e-9 >= BrightnessTrendModel.exitDuration {
                     dynamic = false
-                    baseline = nil
+                    // Sampling can slow down while cumulative evidence remains valid.
                     directions.removeAll(keepingCapacity: true)
                     velocitySamples.removeAll(keepingCapacity: true)
                     quietSince = nil
@@ -182,7 +180,6 @@ struct BrightnessTrendStateMachine {
         if let attempt = lastAttemptAt, now.timeIntervalSince(attempt) < configuration.cooldown { return nil }
         let candidate = NotificationCandidate(id: UUID(), target: target, brightness: brightness, sampledAt: now)
         inFlight = candidate
-        lastAttemptAt = now
         return candidate
     }
 
@@ -202,16 +199,16 @@ struct BrightnessTrendStateMachine {
     }
 
     private mutating func setPending(_ target: DisplayMode?) {
-        if pendingTarget != target { conditionID = UUID() }
         pendingTarget = target
     }
 
-    /// Acceptance means the request was submitted; it does not prove a shortcut ran.
-    mutating func complete(_ candidate: NotificationCandidate, succeeded: Bool, at now: Date) {
-        guard inFlight?.id == candidate.id else { return }
+    /// Only terminal results settle a request. Cancellation before submission consumes no cooldown.
+    /// Acceptance does not prove a shortcut ran; blocked/failed results retain the retry policy.
+    mutating func complete(_ candidate: NotificationCandidate, result: SubmissionResult, at now: Date) {
+        guard inFlight?.id == candidate.id, result != .submitting else { return }
         inFlight = nil
-        lastAttemptAt = now
-        if succeeded {
+        if result != .cancelled { lastAttemptAt = now }
+        if result == .success {
             history = SubmissionHistory(target: candidate.target, submittedAt: now)
             if pendingTarget == candidate.target { setPending(nil) }
         }

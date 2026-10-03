@@ -1,8 +1,10 @@
 # iPhone 重签 IPA
 
-已使用 Xcode 16.2 / iOS 18.2 SDK 构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.1，build 10，通信协议 3。
+已使用 Xcode 16.2 / iOS 18.2 SDK 构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.1，build 11，通信协议 3。
 
-文件：`build/AutoDarkShift-1.0.1-build10-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
+2026-10-03 已使用当前源码重新打包为 build 11，包含累计变化 baseline 保留、普通采样不取消 inFlight 和 cancelled 不消耗冷却三项修复。错误覆盖的 build 10 安装包、校验文件和相关生成产物已删除，未尝试恢复。版本、两个组件的权限与占位签名、ZIP 和 SHA-256 完整性已核对通过。
+
+文件：`build/AutoDarkShift-1.0.1-build11-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
 
 ## 签名时保留的内容
 
@@ -23,7 +25,7 @@
 | 扩展 `Info.plist` | `CFBundleIdentifier`、`AppGroupIdentifier` |
 | 主 App 和扩展的签名 entitlements | 保留共享能力时，`com.apple.security.application-groups` 使用相同、已注册的 App Group；无该能力时移除 |
 
-扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。展开的权限文件另存于 `build/Signing/AutoDarkShift.entitlements` 和 `build/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
+扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。本次展开的权限文件另存于 `build/build11/Signing/AutoDarkShift.entitlements` 和 `build/build11/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
 
 如果签名工具不支持同步上述自定义字段，可先将自己的标识符写入 `Config/Local.xcconfig`，再运行打包脚本。构建无需把证书交给本机：
 
@@ -33,10 +35,12 @@ bash tools/package_ipa.sh
 
 脚本优先使用 `DEVELOPER_DIR` 指定的 Xcode，其次使用系统已选择的完整 Xcode、`/Applications/Xcode.app` 或下载目录中的 Xcode。它不修改系统的 Xcode 选择，不读取证书，也不连接 Apple 账号。
 
+每次执行会自动递增 `Config/Project.xcconfig` 中的 build 号，并将同一编号用于主 App 和扩展；失败的构建也保留该编号，不回退复用。归档、缓存、权限文件和编译日志保存在各自的 `build/build<编号>/`，IPA 与 SHA-256 文件名带 build 号，脚本拒绝覆盖已有产物。
+
 ## 验证范围
 
 已通过 iPhone Release 编译和归档、主 App/扩展 arm64 与 iPhoneOS 平台检查、权限与共享标识符检查、占位签名完整性检查、IPA ZIP 完整性检查。真实证书签名、安装和设备上的 VPN、亮度及后台行为尚未验证。
 
-运行时以单个“保活”开关准备并开启 VPN。1.0.1 / build 10 使用亮度趋势评分与动态采样（1 / 10 / 30 / 60 / 120 Hz），保留认证本机通道日志回传；实验扫描组件继续归档，并继续区分真实连接与运行详情读取；查询无回复不是要求重新签名或安装的依据。安装后的功能与可观测性分开记录，具体步骤见 [LOG_REPAIR.md](LOG_REPAIR.md)。
+运行时以单个“保活”开关准备并开启 VPN。1.0.1 / build 11 使用亮度趋势评分与动态采样（1 / 10 / 30 / 60 / 120 Hz），保留认证本机通道日志回传；实验扫描组件继续归档，并继续区分真实连接与运行详情读取；查询无回复不是要求重新签名或安装的依据。安装后的功能与可观测性分开记录，具体步骤见 [LOG_REPAIR.md](LOG_REPAIR.md)。
 
 升级后关闭再开启一次保活，让旧 VPN profile 写入本机日志备用通道参数。新的回传链路与复测见 [LOG_TRANSPORT.md](LOG_TRANSPORT.md)。

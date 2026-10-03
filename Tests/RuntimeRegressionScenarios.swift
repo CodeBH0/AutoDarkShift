@@ -41,6 +41,11 @@ import Foundation
         ("retired test configuration and snapshot load as ordinary monitoring", retiredConfiguration),
         ("dynamic sampling bounds storage and preserves notifications", dynamicStorageCadence),
         ("retiming preserves observer and pending authorization", retimingPreservesAuthorization),
+        ("baseline survives exit in snapshot logs and IPC", baselineSurvivesExit),
+        ("in-flight notification completes after score fallback", scoreFallbackStillSubmits),
+        ("observation resets preserve in-flight notification", observationResetKeepsInFlight),
+        ("lifecycle cancellation consumes no cooldown", cancelledAllowsImmediateCandidate),
+        ("duplicate authorization and result callbacks submit once", duplicateNotificationCallbacks),
         ("sampling gaps clear trend before evaluating new brightness", samplingGap),
         ("retired wire commands are rejected without changing sampling", retiredCommands),
         ("historic test records remain exportable without mutation", legacyDiagnosticRetention),
@@ -334,7 +339,7 @@ import Foundation
         guard let dark = machine.sample(brightness: 0.20, at: t.addingTimeInterval(1), uptime: 1) else {
             throw ProjectError.message("Missing dark trend candidate")
         }
-        machine.complete(dark, succeeded: true, at: t.addingTimeInterval(1))
+        machine.complete(dark, result: .success, at: t.addingTimeInterval(1))
         try require(machine.sample(brightness: 0.18, at: t.addingTimeInterval(1.1), uptime: 1.1) == nil, "same target dedupes")
         machine.resetObservations()
         _ = machine.sample(brightness: 0.10, at: t.addingTimeInterval(2), uptime: 2)
@@ -601,6 +606,159 @@ import Foundation
         try require(f.runtime.snapshot.trend?.baseline == nil && f.sampler.interval == 1 && f.sink.submissions == 0,
                     "unobserved gap cannot fabricate a transition")
         try require(f.store.logs.contains { $0.event == "sampling_gap" }, "gap diagnostic")
+    }
+
+    private static func baselineSurvivesExit() async throws {
+        let f = try fixture()
+        f.sampler.value = 0.10
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.10)
+        f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.31)
+        f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.sampler.interval == 1 && f.runtime.snapshot.trend?.dynamicSampling == false,
+                    "quiet trend returns to normal polling")
+        for snapshot in [f.runtime.snapshot, f.store.savedSnapshot!] {
+            try require(snapshot.trend?.baseline == 0.10 && snapshot.trend?.change == 1,
+                        "runtime and persisted snapshot retain cumulative evidence at exit")
+        }
+        f.clock.advance(1)
+        f.sampler.emit(0.25, at: f.clock.now, uptime: f.clock.uptime)
+        let endpoint = MonitorControlEndpoint(identity: identity, runtime: { f.runtime }, diagnostics: { "" })
+        let reply = try decode(endpoint.handle(SharedJSON.encoder().encode(MonitorRequest(command: .queryStatus))))
+        try require(reply.snapshot?.trend?.baseline == 0.10 && reply.snapshot?.trend?.change == 1,
+                    "IPC reports the retained baseline during stable 1 Hz polling")
+        try require(f.store.logs.contains {
+            $0.event == "sampling_rate_changed" && $0.fields["frequency"] == "1.0"
+                && $0.fields["baseline"] == "0.1" && $0.fields["delta"] == "1.0"
+        }, "exit diagnostic preserves baseline and delta")
+        try require(f.sink.submissions == 1 && f.store.savedHistory?.target == .light,
+                    "retained cumulative evidence does not duplicate a successful request")
+    }
+
+    private static func scoreFallbackStillSubmits() async throws {
+        let f = try fixture()
+        f.sink.deferAuthorization = true
+        f.sampler.value = 0.40
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        let request = f.runtime.snapshot.submission!
+        f.clock.advance(0.10)
+        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(0.31)
+        f.sampler.emit(0.30, at: f.clock.now, uptime: f.clock.uptime)
+        f.clock.advance(1)
+        f.sampler.emit(0.31, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.runtime.snapshot.trend!.score > -0.50 && f.runtime.snapshot.pendingTarget == nil,
+                    "ordinary sampling falls below the dark decision threshold")
+        try require(f.runtime.snapshot.submission?.identifier == request.identifier
+                    && f.runtime.snapshot.submission?.result == .submitting && f.sink.authorizationCalls == 1,
+                    "score changes retain the single original request")
+        f.sink.completeAuthorization(true)
+        try require(f.sink.submissions == 1 && f.sink.lastCandidate?.target == .dark
+                    && f.sink.lastCandidate?.brightness == 0.30 && f.sink.lastSource == .poll,
+                    "authorization submits the original target brightness and source")
+        try require(f.runtime.snapshot.sample?.brightness == 0.31
+                    && f.runtime.snapshot.submission?.brightness == 0.30
+                    && f.runtime.snapshot.submission?.result == .success,
+                    "latest sample and original submission remain distinct and accurate")
+        let reply = try SharedJSON.decoder().decode(MonitorReply.self,
+            from: SharedJSON.encoder().encode(f.runtime.statusReply()))
+        try require(reply.snapshot?.submission?.identifier == request.identifier
+                    && reply.snapshot?.history?.target == .dark
+                    && f.store.savedHistory?.target == .dark
+                    && f.store.savedSnapshot?.submission?.result == .success,
+                    "IPC persisted snapshot and history agree on successful completion")
+        try require(f.store.logs.contains {
+            $0.event == "notification_result" && $0.fields["identifier"] == request.identifier
+                && $0.fields["result"] == "success"
+        } && !f.store.logs.contains { $0.event == "notification_result" && $0.fields["result"] == "cancelled" },
+        "score fallback produces success rather than cancellation diagnostics")
+    }
+
+    private static func observationResetKeepsInFlight() async throws {
+        for invalidInput in [true, false] {
+            let f = try fixture()
+            f.sink.deferAuthorization = true
+            f.sampler.value = 0.40
+            try f.runtime.start()
+            f.clock.advance(1)
+            f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+            f.clock.advance(invalidInput ? 0.1 : 10)
+            f.sampler.emit(invalidInput ? .nan : 0.90, at: f.clock.now, uptime: f.clock.uptime)
+            try require(f.runtime.snapshot.pendingTarget == nil, "observation reset clears the pending score condition")
+            f.sink.completeAuthorization(true)
+            try require(f.sink.submissions == 1 && f.runtime.snapshot.submission?.result == .success
+                        && f.store.savedHistory?.target == .dark,
+                        "missing or invalid later observations cannot revoke an accepted candidate")
+        }
+    }
+
+    private static func cancelledAllowsImmediateCandidate() async throws {
+        for reload in [true, false] {
+            let f = try fixture(cooldown: 30)
+            f.sink.deferAuthorization = true
+            f.sampler.value = 0.40
+            try f.runtime.start()
+            f.clock.advance(1)
+            f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+            let cancelledID = f.runtime.snapshot.submission!.identifier
+            if reload {
+                f.store.config.revision = "cancelled-reload"
+                try require(f.runtime.reload(expectedRevision: f.store.config.revision).success, "reload invalidates old generation")
+            } else {
+                f.runtime.sleep()
+                f.clock.advance(0.1)
+                f.runtime.wake()
+            }
+            f.sink.completeAuthorization(true)
+            try require(f.runtime.snapshot.submission?.result == .cancelled && f.sink.submissions == 0
+                        && f.runtime.snapshot.counters.notificationAttempts == 0 && f.store.savedHistory == nil,
+                        "lifecycle cancellation submits nothing and saves no success history")
+            f.sink.deferAuthorization = false
+            f.clock.advance(1)
+            f.sampler.emit(0.40, at: f.clock.now, uptime: f.clock.uptime)
+            f.clock.advance(1)
+            f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+            try require(f.runtime.snapshot.submission?.result == .success
+                        && f.runtime.snapshot.submission?.identifier != cancelledID
+                        && f.sink.submissions == 1 && f.runtime.snapshot.counters.notificationAttempts == 1
+                        && f.runtime.snapshot.counters.notificationSuccesses == 1,
+                        "next qualifying candidate submits immediately within the nominal 30 second cooldown")
+            try require(f.store.savedHistory?.submittedAt == f.clock.now
+                        && f.store.savedSnapshot?.submission?.result == .success,
+                        "only the actually successful replacement contributes history and counters")
+            let results = f.store.logs.filter { $0.event == "notification_result" }.map { $0.fields["result"] ?? "" }
+            try require(results == ["cancelled", "success"], "diagnostics retain both the cancellation and replacement outcome")
+        }
+    }
+
+    private static func duplicateNotificationCallbacks() async throws {
+        let f = try fixture()
+        f.sink.deferAuthorization = true
+        f.sink.deferSubmission = true
+        f.sampler.value = 0.40
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+        let authorization = f.sink.authorizationCallback!
+        f.sink.completeAuthorization(true)
+        authorization(true, "duplicate")
+        try require(f.sink.submissions == 1 && f.runtime.snapshot.counters.notificationAttempts == 1,
+                    "repeated authorization cannot issue a second add while the first is in flight")
+        f.clock.advance(0.1)
+        f.sampler.emit(0.90, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.sink.authorizationCalls == 1, "opposite score cannot replace the in-flight request")
+        let completion = f.sink.submissionCallback!
+        f.sink.completeSubmission(nil)
+        completion(nil)
+        authorization(true, "stale")
+        try require(f.sink.submissions == 1 && f.runtime.snapshot.counters.notificationSuccesses == 1
+                    && f.store.savedHistory?.target == .dark,
+                    "stale callbacks cannot resubmit or alter completion history")
     }
 
     private static func retiredCommands() async throws {
@@ -883,14 +1041,20 @@ private final class MemoryStore: MonitorStore {
     var deferAuthorization = false
     var deferSubmission = false
     var submissions = 0
+    var authorizationCalls = 0
+    var lastCandidate: NotificationCandidate?
+    var lastSource: SampleSource?
     var authorizationCallback: ((Bool, String) -> Void)?
     var submissionCallback: ((Error?) -> Void)?
     func authorization(_ completion: @escaping (Bool, String) -> Void) {
+        authorizationCalls += 1
         if deferAuthorization { authorizationCallback = completion }
         else { completion(allowed, "test") }
     }
     func submit(_ candidate: NotificationCandidate, source: SampleSource, completion: @escaping (Error?) -> Void) {
         submissions += 1
+        lastCandidate = candidate
+        lastSource = source
         if deferSubmission { submissionCallback = completion }
         else { completion(nil) }
     }

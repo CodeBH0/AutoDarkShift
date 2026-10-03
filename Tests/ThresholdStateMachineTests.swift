@@ -150,8 +150,30 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
             _ = sample(&machine, 0.27, 1.31)
             XCTAssertFalse(machine.trend!.dynamicSampling)
             XCTAssertEqual(machine.pollInterval, 1)
-            XCTAssertNil(machine.trend?.baseline)
+            XCTAssertEqual(machine.trend?.baseline, 0.25)
+            XCTAssertEqual(machine.trend!.change, (0.27 - 0.25) / 0.15, accuracy: 1e-12)
             XCTAssertEqual(machine.trend?.effectiveChanges, 0)
+        }
+    }
+
+    func testCumulativeChangeSurvivesExitAndNormalPollingInBothDirections() throws {
+        for baseline in [0.10, 0.40] {
+            var machine = try engine()
+            _ = sample(&machine, baseline, 0)
+            let candidate = try XCTUnwrap(sample(&machine, 0.25, 1))
+            machine.complete(candidate, result: .success, at: time(1))
+            _ = sample(&machine, 0.25, 1.10)
+            _ = sample(&machine, 0.25, 1.40)
+            XCTAssertFalse(machine.trend!.dynamicSampling)
+            XCTAssertEqual(machine.pollInterval, 1)
+            XCTAssertEqual(machine.trend?.baseline, baseline)
+            XCTAssertEqual(machine.trend!.change, baseline < 0.25 ? 1 : -1, accuracy: 1e-12)
+            XCTAssertNil(sample(&machine, 0.25, 2.40))
+            XCTAssertEqual(machine.trend?.baseline, baseline)
+            XCTAssertEqual(machine.trend!.change, baseline < 0.25 ? 1 : -1, accuracy: 1e-12)
+            XCTAssertEqual(machine.trend!.score, baseline < 0.25 ? 0.35 : -0.35, accuracy: 1e-12)
+            _ = sample(&machine, 0.30, 3.40)
+            XCTAssertEqual(machine.trend?.baseline, 0.25, "A newly detected change establishes its own baseline")
         }
     }
 
@@ -182,7 +204,7 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         var machine = try engine()
         _ = sample(&machine, 0.20, 0)
         let light = try XCTUnwrap(sample(&machine, 0.35, 1))
-        machine.complete(light, succeeded: true, at: time(1))
+        machine.complete(light, result: .success, at: time(1))
         XCTAssertNil(sample(&machine, 0.36, 1.10))
         machine.resetObservations()
         _ = sample(&machine, 0.40, 2)
@@ -194,7 +216,7 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         var machine = try engine(cooldown: 1)
         _ = sample(&machine, 0.40, 0)
         let first = try XCTUnwrap(sample(&machine, 0.20, 1))
-        machine.complete(first, succeeded: false, at: time(1))
+        machine.complete(first, result: .failed, at: time(1))
         XCTAssertNil(sample(&machine, 0.18, 1.5))
         XCTAssertEqual(machine.pendingTarget, .dark)
         let retry = try XCTUnwrap(sample(&machine, 0.16, 2))
@@ -206,11 +228,55 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         var machine = try engine(cooldown: 3)
         _ = sample(&machine, 0.20, 0)
         let first = try XCTUnwrap(sample(&machine, 0.35, 1))
-        machine.complete(first, succeeded: false, at: time(1))
-        _ = sample(&machine, 0.35, 1.1)
-        _ = sample(&machine, 0.35, 1.4)
+        machine.complete(first, result: .failed, at: time(1))
+        _ = sample(&machine, 0.25, 1.1)
+        _ = sample(&machine, 0.25, 1.4)
         XCTAssertNil(machine.pendingTarget)
-        XCTAssertNil(sample(&machine, 0.35, 4))
+        XCTAssertNil(sample(&machine, 0.25, 4))
+    }
+
+    func testInFlightSurvivesScoreFallbackAndBlocksNewCandidates() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.40, 0)
+        let candidate = try XCTUnwrap(sample(&machine, 0.30, 1))
+        XCTAssertEqual(candidate.target, .dark)
+        XCTAssertNil(sample(&machine, 0.30, 1.1))
+        XCTAssertNil(sample(&machine, 0.30, 1.4))
+        XCTAssertNil(machine.pendingTarget)
+        XCTAssertGreaterThan(machine.trend!.score, -0.50)
+        XCTAssertEqual(machine.inFlight, candidate)
+        XCTAssertNil(sample(&machine, 0.10, 2.4))
+        XCTAssertEqual(machine.inFlight, candidate, "A new qualifying sample cannot replace the in-flight request")
+        machine.complete(candidate, result: .success, at: time(2.4))
+        XCTAssertNil(machine.inFlight)
+        XCTAssertEqual(machine.history?.target, .dark)
+    }
+
+    func testCancelledCandidateDoesNotStartCooldownOrChangeHistory() throws {
+        let histories: [SubmissionHistory?] = [nil, SubmissionHistory(target: .light, submittedAt: time(0))]
+        for history in histories {
+            var machine = try engine(cooldown: 3, history: history)
+            _ = sample(&machine, 0.40, 2)
+            let first = try XCTUnwrap(sample(&machine, 0.20, 3))
+            machine.complete(first, result: .cancelled, at: time(3.5))
+            XCTAssertEqual(machine.history, history)
+            let replacement = try XCTUnwrap(sample(&machine, 0.19, 3.6))
+            XCTAssertNotEqual(replacement.id, first.id)
+            XCTAssertEqual(replacement.target, .dark)
+        }
+    }
+
+    func testCancelledCandidatePreservesCooldownOfEarlierFailedRequest() throws {
+        var machine = try engine()
+        _ = sample(&machine, 0.40, 0)
+        let first = try XCTUnwrap(sample(&machine, 0.20, 1))
+        machine.complete(first, result: .failed, at: time(1))
+        let cancelled = try XCTUnwrap(sample(&machine, 0.19, 1.2))
+        try machine.updateConfiguration(MonitorConfiguration(cooldown: 3))
+        machine.complete(cancelled, result: .cancelled, at: time(1.3))
+        _ = sample(&machine, 0.40, 1.4)
+        XCTAssertNil(sample(&machine, 0.20, 2.4))
+        XCTAssertEqual(sample(&machine, 0.15, 4)?.target, .dark)
     }
 
     func testHistoryAndCooldownSurviveRestart() throws {
@@ -229,9 +295,9 @@ final class BrightnessTrendStateMachineTests: XCTestCase {
         _ = sample(&machine, 0.40, 0)
         let first = try XCTUnwrap(sample(&machine, 0.20, 1))
         XCTAssertNil(sample(&machine, 0.18, 1.1))
-        machine.complete(first, succeeded: false, at: time(1.1))
+        machine.complete(first, result: .failed, at: time(1.1))
         let retry = try XCTUnwrap(sample(&machine, 0.16, 1.2))
-        machine.complete(first, succeeded: true, at: time(1.2))
+        machine.complete(first, result: .success, at: time(1.2))
         XCTAssertEqual(machine.inFlight?.id, retry.id)
         XCTAssertNil(machine.history)
     }
