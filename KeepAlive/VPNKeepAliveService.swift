@@ -104,7 +104,11 @@ import NetworkExtension
         hasProbed = false
         record("vpn_start_requested", ["storageMode": storageMode.rawValue, "revision": initialConfiguration.revision])
         guard let session = manager.connection as? NETunnelProviderSession else { throw ProjectError.message("VPN 连接不是 PacketTunnel 会话。") }
-        try session.startTunnel(options: ["initialConfiguration": try SharedJSON.encoder().encode(initialConfiguration)])
+        var options: [String: NSObject] = ["initialConfiguration": try SharedJSON.encoder().encode(initialConfiguration) as NSData]
+        if let history = try storage?.store.history() {
+            options["initialHistory"] = try SharedJSON.encoder().encode(history) as NSData
+        }
+        try session.startTunnel(options: options)
         updateState()
     }
 
@@ -133,6 +137,9 @@ import NetworkExtension
 
     func queryStatus() async throws -> MonitorReply {
         try await sendChecked(.init(command: .handshake))
+    }
+    func prepareHostHandoff() async throws -> MonitorReply {
+        try await sendChecked(.init(command: .prepareHostHandoff))
     }
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
         try await sendChecked(.init(command: .reloadConfiguration, expectedRevision: configuration.revision,

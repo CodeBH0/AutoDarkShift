@@ -6,6 +6,10 @@ import Foundation
 /// Shared by XCTest and the standalone runner: both exercise the actual production files.
 @MainActor enum RuntimeRegressionScenarios {
     static var cases: [(String, () async throws -> Void)] { [
+        ("legacy monitor configuration defaults auto dark shift on", legacyMonitorConfiguration),
+        ("disabled monitor remains ready without sampling across sleep and wake", disabledStartupLifecycle),
+        ("monitor toggle preserves issued results and cancels pending authorization", monitorFeatureToggle),
+        ("provider host handoff reads final issued notification history", providerHandoffDrainsIssuedNotification),
         ("lifecycle and independent sampler", lifecycle),
         ("query never creates heartbeat", queryIsReadOnly),
         ("stale sampler callbacks ignored", staleSamples),
@@ -78,6 +82,130 @@ import Foundation
         let runtime = try SwitchMonitor(store: store, sampler: sampler, notifications: sink, clock: { clock.now },
                                        uptime: { clock.uptime })
         return Fixture(store: store, sampler: sampler, sink: sink, clock: clock, runtime: runtime)
+    }
+
+    private static func legacyMonitorConfiguration() async throws {
+        let legacy = Data(#"{"revision":"legacy","cooldown":7}"#.utf8)
+        let configuration = try SharedJSON.decoder().decode(MonitorConfiguration.self, from: legacy)
+        try require(configuration.revision == "legacy" && configuration.cooldown == 7 && configuration.isEnabled,
+                    "old persisted settings retain revision and cooldown while enabling the new feature by default")
+        let current = MonitorConfiguration(revision: "current", cooldown: 2, isEnabled: false)
+        let roundTrip = try SharedJSON.decoder().decode(MonitorConfiguration.self,
+            from: SharedJSON.encoder().encode(current))
+        try require(roundTrip == current, "explicit feature setting survives configuration persistence")
+    }
+
+    private static func disabledStartupLifecycle() async throws {
+        let store = MemoryStore()
+        store.config = MonitorConfiguration(isEnabled: false)
+        let sampler = FakeSampler()
+        let runtime = try SwitchMonitor(store: store, sampler: sampler, notifications: FakeNotifications())
+        try runtime.start()
+        try require(runtime.snapshot.phase == .running && runtime.snapshot.heartbeatAt == nil
+                    && runtime.snapshot.activePollInterval == nil && runtime.snapshot.counters.samples == 0
+                    && sampler.starts == 0 && !sampler.active,
+                    "disabled startup is ready but creates no observer, sample, or heartbeat")
+        let readyLog = store.logs.last { $0.event == "monitor_ready" }
+        try require(readyLog != nil, "disabled monitoring can still report host readiness")
+        runtime.sleep()
+        runtime.wake()
+        try require(runtime.snapshot.phase == .running && sampler.starts == 0
+                    && runtime.snapshot.heartbeatAt == nil && runtime.snapshot.activePollInterval == nil,
+                    "sleep and wake do not start sampling while the saved feature switch is off")
+        try require(runtime.statusReply().snapshot?.phase == .running, "status remains queryable while disabled")
+    }
+
+    private static func monitorFeatureToggle() async throws {
+        let f = try fixture()
+        f.sampler.value = 0.40
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+        let priorHistory = f.store.savedHistory
+        let priorCounters = f.runtime.snapshot.counters
+        try require(priorHistory?.target == .dark && priorCounters.notificationAttempts == 1
+                    && priorCounters.notificationSuccesses == 1, "the test establishes a completed notification before disabling")
+
+        let staleCallback = f.sampler.receive
+        let startsBeforeDisable = f.sampler.starts
+        f.store.config = MonitorConfiguration(revision: "disabled", cooldown: 0, isEnabled: false)
+        let disabled = f.runtime.reload(expectedRevision: "disabled")
+        try require(disabled.success && f.runtime.snapshot.phase == .running && !f.sampler.active
+                    && f.runtime.snapshot.activePollInterval == nil && f.runtime.snapshot.heartbeatAt == nil,
+                    "feature disable stops observation without stopping its host")
+        staleCallback?(BrightnessReading(value: 0.10, source: .poll, timestamp: f.clock.now,
+                                          uptime: f.clock.uptime))
+        try require(f.runtime.snapshot.counters.samples == priorCounters.samples
+                    && f.runtime.snapshot.counters.polls == priorCounters.polls
+                    && f.runtime.snapshot.history == priorHistory,
+                    "stale callbacks cannot change counts or successful history after disabling")
+        f.runtime.sleep()
+        f.runtime.wake()
+        try require(f.sampler.starts == startsBeforeDisable && f.runtime.snapshot.phase == .running
+                    && f.runtime.snapshot.heartbeatAt == nil,
+                    "disabled wake leaves the independent runtime ready without polling")
+
+        f.store.config = MonitorConfiguration(revision: "enabled", cooldown: 0, isEnabled: true)
+        let enabled = f.runtime.reload(expectedRevision: "enabled")
+        try require(enabled.success && f.sampler.starts == startsBeforeDisable + 1
+                    && f.sampler.active && f.sampler.interval == 1
+                    && f.runtime.snapshot.activePollInterval == 1,
+                    "re-enable starts fresh ordinary one second observation")
+        try require(f.runtime.snapshot.history == priorHistory
+                    && f.runtime.snapshot.counters.notificationAttempts == priorCounters.notificationAttempts
+                    && f.runtime.snapshot.counters.notificationSuccesses == priorCounters.notificationSuccesses
+                    && f.runtime.snapshot.counters.extensionStarts == priorCounters.extensionStarts,
+                    "feature toggling preserves history and lifecycle counters without restarting the host")
+
+        let pending = try fixture()
+        pending.sampler.value = 0.40
+        pending.sink.deferAuthorization = true
+        try pending.runtime.start()
+        pending.clock.advance(1)
+        pending.sampler.emit(0.20, at: pending.clock.now, uptime: pending.clock.uptime)
+        try require(pending.runtime.snapshot.submission?.result == .submitting,
+                    "a qualifying sample waits for deferred notification authorization")
+        pending.store.config = MonitorConfiguration(revision: "off-pending", cooldown: 0, isEnabled: false)
+        _ = pending.runtime.reload(expectedRevision: "off-pending")
+        try require(pending.runtime.snapshot.submission?.result == .cancelled
+                    && pending.runtime.snapshot.counters.notificationAttempts == 0,
+                    "disable cancels an authorization request before notification center add")
+        pending.sink.completeAuthorization(true)
+        try require(pending.sink.submissions == 0 && pending.runtime.snapshot.phase == .running,
+                    "late authorization cannot submit after disable or stop the keep-alive host")
+    }
+
+    private static func providerHandoffDrainsIssuedNotification() async throws {
+        let f = try fixture()
+        let originalConfiguration = f.store.config
+        f.sampler.value = 0.40
+        f.sink.deferSubmission = true
+        try f.runtime.start()
+        f.clock.advance(1)
+        f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
+        try require(f.runtime.snapshot.counters.notificationAttempts == 1
+                    && f.runtime.snapshot.history == nil,
+                    "notification has been added but its accepted result is still pending")
+
+        var localIdentity = identity
+        localIdentity.storageMode = RuntimeStorageMode.localIPC.rawValue
+        let endpoint = MonitorControlEndpoint(identity: localIdentity, runtime: { f.runtime }, diagnostics: { "" },
+                                               configurationStore: f.store)
+        let handoff = try decode(endpoint.handle(SharedJSON.encoder().encode(
+            MonitorRequest(command: .prepareHostHandoff))))
+        try require(handoff.success && handoff.snapshot?.phase == .stopping
+                    && handoff.snapshot?.history == nil,
+                    "production handoff endpoint reports stopping while an issued add is unresolved")
+
+        f.sink.completeSubmission(nil)
+        let final = try decode(endpoint.handle(SharedJSON.encoder().encode(
+            MonitorRequest(command: .queryStatus))))
+        try require(final.success && final.snapshot?.phase == .stopped
+                    && final.snapshot?.history?.target == .dark
+                    && final.snapshot?.counters.notificationSuccesses == 1,
+                    "status after drain exposes the committed result and latest successful history")
+        try require(f.store.config == originalConfiguration,
+                    "host handoff and final readback leave saved monitoring parameters unchanged")
     }
 
     private static func lifecycle() async throws {

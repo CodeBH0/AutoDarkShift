@@ -66,3 +66,7 @@ App Group 模式直接读取共享 runtime 与 Boost 文件；Provider 自身诊
 5. 本地通信模式先在线同步，随后关闭 VPN，再分别通过两个入口导出缓存；逐流检查覆盖与失败标记。分别记录实际通知/外观切换和日志可读性。
 
 设备精确频率、后台读取、文件分享及持续采集由本轮真机验收确认；本机编译、模型重放和模拟回归不能代替这些结果。
+
+## 多宿主导出（build 15）
+
+App 内监听的 Boost 与运行日志位于私有 LocalMonitoring 目录；VPN 监听继续使用 App Group 或 ProviderRuntime。两个宿主各自使用原有两路容量预算，交接中断当前 trace 并在新实例重新观察。导出汇集所选流的本地监听记录及已有 VPN 记录，保留 scope / instanceID；不会用本地监听记录覆盖 Provider 缓存。关闭 Auto Dark Shift 中断活动 trace，保活可继续运行。

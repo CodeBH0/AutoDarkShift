@@ -55,8 +55,13 @@ final class SwitchMonitor: MonitoringRuntime {
     func start() throws {
         guard snapshot.phase == .starting else { throw ProjectError.message("监听已启动；请创建新的运行实例。") }
         snapshot.phase = .running
-        installSampling()
-        sampler.sampleNow(.initial)
+        if snapshot.appliedConfiguration.isEnabled {
+            installSampling()
+            sampler.sampleNow(.initial)
+        } else {
+            snapshot.activePollInterval = nil
+            snapshot.heartbeatAt = nil
+        }
         // Do not report startup success if the initial status cannot be shared.
         do { try store.saveSnapshot(snapshot) }
         catch {
@@ -110,8 +115,13 @@ final class SwitchMonitor: MonitoringRuntime {
         machine.resetObservations()
         snapshot.phase = .running
         record("monitor_wake")
-        installSampling()
-        sampler.sampleNow(.wake)
+        if snapshot.appliedConfiguration.isEnabled {
+            installSampling()
+            sampler.sampleNow(.wake)
+        } else {
+            snapshot.activePollInterval = nil
+            snapshot.heartbeatAt = nil
+        }
     }
 
     func reload(expectedRevision: String?) -> MonitorReply {
@@ -123,11 +133,25 @@ final class SwitchMonitor: MonitoringRuntime {
             if let expectedRevision, expectedRevision != configuration.revision {
                 throw ProjectError.message("配置版本已变化，请重新保存。")
             }
+            let wasEnabled = snapshot.appliedConfiguration.isEnabled
             try machine.updateConfiguration(configuration)
             boostTrace.interrupt(reason: "configuration_reload", at: clock())
             snapshot.appliedConfiguration = configuration
             record("configuration_applied", ["revision": configuration.revision])
-            if snapshot.phase == .running { removeSampling(); installSampling() }
+            if snapshot.phase == .running {
+                if configuration.isEnabled {
+                    removeSampling()
+                    installSampling()
+                    if !wasEnabled { sampler.sampleNow(.initial) }
+                } else {
+                    removeSampling()
+                    snapshot.heartbeatAt = nil
+                    cancelUnsubmittedCandidate(detail: "自动外观切换已关闭；通知尚未提交。")
+                }
+            } else if !configuration.isEnabled {
+                snapshot.heartbeatAt = nil
+                cancelUnsubmittedCandidate(detail: "自动外观切换已关闭；通知尚未提交。")
+            }
             syncMachine()
             snapshot.updatedAt = clock()
             try store.saveSnapshot(snapshot)
@@ -154,6 +178,10 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func installSampling() {
+        guard snapshot.appliedConfiguration.isEnabled else {
+            snapshot.activePollInterval = nil
+            return
+        }
         let interval = machine.pollInterval
         snapshot.activePollInterval = interval
         lastSampleAt = nil
@@ -179,7 +207,7 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func sample(_ reading: BrightnessReading) {
-        guard snapshot.phase == .running else { return }
+        guard snapshot.phase == .running, snapshot.appliedConfiguration.isEnabled else { return }
         let now = reading.timestamp
         let source = reading.source
         let monotonicNow = reading.uptime ?? uptime()
@@ -252,6 +280,10 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func submit(_ candidate: NotificationCandidate, source: SampleSource) {
+        guard snapshot.appliedConfiguration.isEnabled else {
+            finish(candidate, result: .cancelled, detail: "自动外观切换已关闭；通知尚未提交。")
+            return
+        }
         let samplingGeneration = observationGeneration
         let identifier = "AutoDarkShift.Mode.\(candidate.id.uuidString)"
         snapshot.submission = SubmissionSnapshot(identifier: identifier, target: candidate.target,
@@ -262,8 +294,9 @@ final class SwitchMonitor: MonitoringRuntime {
             guard self.machine.inFlight?.id == candidate.id,
                   self.notificationStartedID != candidate.id else { return }
             guard self.snapshot.phase == .running,
+                  self.snapshot.appliedConfiguration.isEnabled,
                   self.observationGeneration == samplingGeneration else {
-                self.finish(candidate, result: .cancelled, detail: "监听已暂停、停止或配置已重新应用；请求尚未提交通知中心。")
+                self.finish(candidate, result: .cancelled, detail: "监听或自动外观切换已暂停；请求尚未提交通知中心。")
                 return
             }
             guard authorized else {
@@ -298,6 +331,11 @@ final class SwitchMonitor: MonitoringRuntime {
                                         "detail": detail ?? "系统接受了通知请求；尚未确认快捷指令执行。"])
         persist()
         finishStopIfPossible()
+    }
+
+    private func cancelUnsubmittedCandidate(detail: String) {
+        guard let candidate = machine.inFlight, notificationStartedID != candidate.id else { return }
+        finish(candidate, result: .cancelled, detail: detail)
     }
 
     private func finishStopIfPossible() {

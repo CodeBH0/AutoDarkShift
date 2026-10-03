@@ -39,13 +39,13 @@ def file(path, kind):
 
 shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/SharedStore.swift",
           "Shared/ServiceContracts.swift", "Shared/MonitorMessageChannel.swift", "Shared/RuntimeStorage.swift",
-          "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
-monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift"]
+          "Shared/KeepAliveContracts.swift", "Shared/KeepAliveManager.swift", "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
+monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift", "Monitoring/MonitoringHostCoordinator.swift"]
 platform = ["Platform/ScreenBrightnessSampler.swift", "Platform/LocalModeNotificationSink.swift", "Platform/LoopbackMonitorTransport.swift"]
-keepalive = ["KeepAlive/VPNKeepAliveService.swift"]
-app = ["App/AutoDarkShiftApp.swift", "App/AppController.swift", "App/ControlView.swift", "App/AppComposition.swift"]
+keepalive = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "KeepAlive").glob("*.swift"))
+app = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "App").glob("*.swift"))
 tunnel = ["PacketTunnel/PacketTunnelProvider.swift"]
-tests = ["Tests/ThresholdStateMachineTests.swift", "Tests/RuntimeRegressionScenarios.swift", "Tests/RuntimeRegressionTests.swift"]
+tests = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "Tests").glob("*.swift"))
 refs = {path: file(path, "sourcecode.swift") for path in shared + app + tunnel + tests + monitoring + platform + keepalive}
 extras = {
     "App": ["App/Info.plist", "App/AutoDarkShift.entitlements"],
@@ -79,7 +79,7 @@ for name, paths in [("App", app + extras["App"]), ("PacketTunnel", tunnel + extr
                       name=quote(name), sourceTree=quote("<group>")))
 
 frameworks = {}
-for name in ["Foundation", "SwiftUI", "UIKit", "NetworkExtension", "UserNotifications"]:
+for name in ["Foundation", "SwiftUI", "UIKit", "NetworkExtension", "UserNotifications", "AVKit", "AVFoundation", "CoreLocation"]:
     frameworks[name] = add("framework:" + name, "PBXFileReference", lastKnownFileType="wrapper.framework",
                            name=quote(name + ".framework"), path=quote("System/Library/Frameworks/" + name + ".framework"),
                            sourceTree="SDKROOT")

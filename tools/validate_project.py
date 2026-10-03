@@ -148,16 +148,24 @@ test_names = [name for path in (ROOT / "Tests").glob("*.swift")
               for name in re.findall(r"func (test\w+)\(", path.read_text(encoding="utf-8"))]
 assert len(test_names) == len(set(test_names))
 
-# Enforce dependency direction and the explicitly deferred PiP migration.
+# Enforce platform and business dependency boundaries.
 for path in (ROOT / "Monitoring").glob("*.swift"):
     text = path.read_text(encoding="utf-8")
     assert not re.search(r"import (UIKit|NetworkExtension|AVKit|UserNotifications)", text), path
     assert "vpn_" not in text and "NEVPN" not in text, path
 for path in [ROOT / "App/AppController.swift", ROOT / "App/ControlView.swift"]:
     assert "import NetworkExtension" not in path.read_text(encoding="utf-8"), path
-for folder in ["App", "PacketTunnel", "Shared", "Monitoring", "Platform", "KeepAlive"]:
+for folder in ["PacketTunnel", "Shared", "Monitoring", "Platform"]:
     for path in (ROOT / folder).glob("*.swift"):
-        assert "import AVKit" not in path.read_text(encoding="utf-8"), "PiP migration is out of scope"
+        assert "import AVKit" not in path.read_text(encoding="utf-8"), "PiP must remain in app keep-alive adapters"
+for name in ["KeepAliveContracts.swift", "KeepAliveManager.swift", "KeepAliveSwitchControl.swift"]:
+    text = (ROOT / "Shared" / name).read_text(encoding="utf-8")
+    assert not re.search(r"import (UIKit|SwiftUI|NetworkExtension|AVKit|AVFoundation|CoreLocation|UserNotifications)", text), name
+    assert not any(symbol in text for symbol in ["MonitoringClient", "MonitorConfiguration", "SwitchMonitor", "MonitorStore"]), name
+with (ROOT / "App/Info.plist").open("rb") as source:
+    app_info = plistlib.load(source)
+assert set(app_info.get("UIBackgroundModes", [])) == {"audio", "location"}
+assert app_info.get("NSLocationWhenInUseUsageDescription") and app_info.get("NSLocationAlwaysAndWhenInUseUsageDescription")
 # Retired benchmark sources must never enter the active targets or Swift Package.
 retired_symbols = ("PollingBoost", "PollingStatistics", "startPollingTest", "stopPollingTest",
                    "pollingTestID", "appendPollingResult", "readDuration", "effectivePollInterval")
@@ -179,7 +187,7 @@ print("PASS: retired test components and local inputs excluded from active targe
 print(f"PASS: OpenStep structure; {len(objects)} resolved objects; {len(local_files)} local project files.")
 print("PASS: 3 target source memberships, Debug/Release settings, extension embedding and dependency.")
 print("PASS: 4 XML plists/entitlements; shared App Group and provider identifiers.")
-print("PASS: runtime protocol/storage metadata; monitoring/UI dependency boundaries; VPN remains selected.")
+print("PASS: runtime protocol/storage metadata; monitoring/UI dependency boundaries; native keep-alive adapters remain App-only.")
 print("PASS: 2 shared Scheme XML files, test target references and workspace XML.")
 print("PASS: iOS 17 / Swift 5 configuration, automatic signing, empty default team and optional local overrides.")
 print(f"INFO: {len(test_names)} unique XCTest methods provided; no Swift tests executed by this script.")

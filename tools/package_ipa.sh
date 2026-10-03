@@ -1,9 +1,17 @@
 #!/bin/bash
-# Build an iPhone archive and package it for certificate signing on another device.
+# Build an iPhone package for certificate signing on another device.
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
+
+BUILD_MODE=archive
+if [[ "${1:-}" == --direct-sdk && "$#" == 1 ]]; then
+    BUILD_MODE=direct-sdk
+elif [[ "$#" != 0 ]]; then
+    echo "Usage: bash tools/package_ipa.sh [--direct-sdk]" >&2
+    exit 1
+fi
 
 # Prefer an explicit developer directory, then the selected Xcode installation.
 # This machine also has a complete Xcode in Downloads.
@@ -64,23 +72,40 @@ if [[ -e "$BUILD_ROOT" || -e "$IPA_PATH" || -e "$IPA_PATH.sha256" ]]; then
     exit 1
 fi
 mkdir "$BUILD_ROOT"
-echo "Building $APP_VERSION / build $APP_BUILD; log: $BUILD_ROOT/unsigned-build.log"
-if ! /usr/bin/xcodebuild -quiet \
-    -project AutoDarkShift.xcodeproj -scheme AutoDarkShift \
-    -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
-    -derivedDataPath "$BUILD_ROOT/DerivedData" -archivePath "$ARCHIVE_PATH" \
-    CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
-    MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
-    ARCHS=arm64 archive >"$BUILD_ROOT/unsigned-build.log" 2>&1; then
-    tail -n 60 "$BUILD_ROOT/unsigned-build.log" >&2
-    exit 1
+echo "Building $APP_VERSION / build $APP_BUILD ($BUILD_MODE); log: $BUILD_ROOT/unsigned-build.log"
+if [[ "$BUILD_MODE" == direct-sdk ]]; then
+    # Explicit SDK/target builds avoid destination discovery and never install a platform.
+    # This mode produces the same Release app/extension, but no .xcarchive.
+    BUILT_APP="$BUILD_ROOT/Products/Release-iphoneos/AutoDarkShift.app"
+    if ! /usr/bin/xcodebuild -quiet \
+        -project AutoDarkShift.xcodeproj -target AutoDarkShift \
+        -configuration Release -sdk iphoneos \
+        SYMROOT="$BUILD_ROOT/Products" OBJROOT="$BUILD_ROOT/Intermediates" \
+        CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+        MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
+        ARCHS=arm64 build >"$BUILD_ROOT/unsigned-build.log" 2>&1; then
+        tail -n 60 "$BUILD_ROOT/unsigned-build.log" >&2
+        exit 1
+    fi
+else
+    BUILT_APP="$ARCHIVE_PATH/Products/Applications/AutoDarkShift.app"
+    if ! /usr/bin/xcodebuild -quiet \
+        -project AutoDarkShift.xcodeproj -scheme AutoDarkShift \
+        -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
+        -derivedDataPath "$BUILD_ROOT/DerivedData" -archivePath "$ARCHIVE_PATH" \
+        CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
+        MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
+        ARCHS=arm64 archive >"$BUILD_ROOT/unsigned-build.log" 2>&1; then
+        tail -n 60 "$BUILD_ROOT/unsigned-build.log" >&2
+        exit 1
+    fi
 fi
 
 PACKAGE_STAGE="$(/usr/bin/mktemp -d "$BUILD_ROOT/ipa-stage.XXXXXX")"
 trap 'rm -rf "$PACKAGE_STAGE"' EXIT
 mkdir -p "$PACKAGE_STAGE/Payload" "$BUILD_ROOT/Signing"
 /usr/bin/ditto --norsrc --noextattr --noqtn \
-    "$ARCHIVE_PATH/Products/Applications/AutoDarkShift.app" \
+    "$BUILT_APP" \
     "$PACKAGE_STAGE/Payload/AutoDarkShift.app"
 
 APP_PATH="$PACKAGE_STAGE/Payload/AutoDarkShift.app"

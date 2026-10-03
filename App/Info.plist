@@ -11,6 +11,9 @@
     <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
+    <key>UIBackgroundModes</key><array><string>audio</string><string>location</string></array>
+    <key>NSLocationWhenInUseUsageDescription</key><string>定位保活使用低精度位置更新维持后台运行，不保存或上传坐标。</string>
+    <key>NSLocationAlwaysAndWhenInUseUsageDescription</key><string>允许后台定位可在离开 App 后继续定位保活；位置不保存或上传。</string>
     <key>UILaunchScreen</key><dict/>
     <key>UIApplicationSceneManifest</key><dict>
         <key>UIApplicationSupportsMultipleScenes</key><false/>

@@ -1,48 +1,51 @@
 # 保活与切换监听的架构边界
 
-本轮默认且唯一接入的保活后端仍是 VPN，没有创建 PiP 控制器、添加音频后台权限或开启高刷。切换监听继续在 Packet Tunnel 进程执行，外部快捷指令继续负责系统深浅色切换。
+当前接入 VPN、PiP 和 Location 三种独立保活方案，可以同时开启。`KeepAliveManager` 只管理注册、独立开关与平台状态；Auto Dark Shift 的配置、采样、通知和宿主选择在监听与 App 组合层。独立静音音频方案已按用户要求取消。具体平台行为和参考来源见 [KEEP_ALIVE.md](KEEP_ALIVE.md)。
 
 ## 依赖关系
 
 ```mermaid
 flowchart TD
-    UI[ControlView / AppController] --> K[KeepAliveService]
-    UI --> Toggle[KeepAliveSwitchControl]
-    Toggle --> K
-    UI --> C[MonitoringClient]
-    Factory[AppComposition 当前选择 VPN] --> V[VPNKeepAliveService]
-    V -.实现.-> K
-    V -.跨进程通信实现.-> C
-    V --> IPC[MonitorMessageChannel]
-    IPC --> P[PacketTunnelProvider]
-    P --> E[MonitorControlEndpoint]
-    P --> R[MonitoringRuntime / SwitchMonitor]
-    E --> R
-    R --> S[BrightnessSampling]
-    R --> N[ModeNotificationSubmitting]
-    R --> Store[MonitorStore]
-    S --> Screen[ScreenBrightnessSampler]
-    N --> Notification[LocalModeNotificationSink]
-    Store --> Shared[SharedStore]
-    Future[未来同进程宿主] -.可复用.-> Local[LocalMonitoringClient]
-    Local -.直接调用.-> R
+    Tabs[ControlView 原生 TabView] --> Dashboard[DashboardView]
+    Tabs --> KeepAliveView
+    Tabs --> InformationView
+    Dashboard --> AppController
+    KeepAliveView --> AppController
+    AppController --> Manager[KeepAliveManager]
+    Manager --> Toggle[每种方案独立 KeepAliveSwitchControl]
+    Toggle --> Contract[KeepAliveService]
+    Contract --> VPN[VPNKeepAliveService]
+    Contract --> PiP[PiPKeepAliveService]
+    Contract --> Location[LocationKeepAliveService]
+    AppController --> Host[MonitoringHostCoordinator]
+    Host --> VPN
+    Host --> Local[App 内 SwitchMonitor]
+    VPN --> IPC[Provider Message / Loopback]
+    IPC --> Provider[PacketTunnelProvider]
+    Provider --> Remote[扩展内 SwitchMonitor]
+    Local --> Core[同一模型 / 采样与通知接口]
+    Remote --> Core
 ```
 
 | 层 | 文件 / 接口 | 职责 |
 | --- | --- | --- |
-| 保活控制 | `Shared/ServiceContracts.swift` 中的 `KeepAliveService` | `refresh`、`updateState`、`prepare`、`start`、`stop` 和真实状态回调；不暴露 NetworkExtension 或 AVKit 类型 |
-| 开关状态 | `Shared/KeepAliveSwitchControl.swift` | 准备阶段保存待开启意图，之后跟随真实保活状态；失败复位与重复操作保护，与具体后端无关 |
-| 运行详情读取 | `Shared/MonitoringReadback.swift` | 区分可读取、暂不可读取和明确错误，控制自动重试；不把查询失败转换为保活或监听停止 |
-| 当前 VPN 适配器 | `KeepAlive/VPNKeepAliveService.swift` | VPN 配置、重新启用、连接状态、断开错误、嵌入扩展校验；通过独立 `MonitoringClient` 接口提供跨进程控制 |
-| VPN 运行载体 | `PacketTunnel/PacketTunnelProvider.swift` | 系统隧道设置、生命周期和组合依赖；调用监听的 start/stop/sleep/wake；不含评分、亮度读取或通知内容 |
-| 监听业务 | `Monitoring/SwitchMonitor.swift` | 趋势评分与动态采样、候选、冷却、去重、心跳、统计、配置和通知结果持久化；仅依赖 Foundation 与接口 |
-| 纯逻辑模型 | `Shared/ThresholdStateMachine.swift` 中的 `BrightnessTrendStateMachine` | v2 三项评分、一秒统一速度窗、稳定 / 反向起点、五档采样和 0.30 秒低速退出；全部时间由调用方注入 |
-| 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | UIKit 主线程采样 / 事件 / 定时器，以及本地通知授权与提交 |
-| 监听控制 | `MonitoringClient`、`MonitorControlEndpoint`、`LocalMonitoringClient` | 查询、配置确认和诊断导出；与保活启停分离 |
-| 存储与协议 | `Shared/RuntimeStorage.swift` 等 | 配置、历史、快照、JSONL；通信版本 3，支持 `app-group-v1` 与 `local-ipc-v1` |
-| 组合入口 | `App/AppComposition.swift` 和 Provider 中的一处运行时创建 | 当前选用 VPN，分别注入保活接口和监听控制接口 |
+| 一级 GUI | `App/ControlView.swift` | 原生底部 TabView；三个独立 View，各自 NavigationStack，共用原有 AppController |
+| 仪表 | `App/DashboardView.swift` | 当前状态、Auto Dark Shift 开关、切换监听与通知统计二级入口 |
+| 保活 / 信息 | `App/KeepAliveView.swift`、`App/InformationView.swift` | 三个独立开关 / 真实平台状态，以及版本信息 |
+| 通用保活抽象 | `Shared/KeepAliveContracts.swift`、`KeepAliveManager.swift`、`KeepAliveSwitchControl.swift` | Foundation 接口与每种方案独立生命周期；不引用监听、模型、配置存储或通知业务 |
+| 原生保活适配器 | `KeepAlive/` | VPN 系统配置和连接，PiP 内容源与 delegate，低精度后台定位与权限；原生框架只进入 App target |
+| 监听宿主协调 | `Monitoring/MonitoringHostCoordinator.swift` | App 与 VPN 的监听选择、启停交接、已获取成功历史合并；不改变三种保活的独立开关 |
+| 监听业务 | `Monitoring/SwitchMonitor.swift` | 原有模型 v2、采样、冷却、去重与双日志；新增独立 isEnabled 配置 |
+| 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | 真实 UIKit 读数与通知提交，两种监听宿主复用 |
+| 存储 / 控制 | `MonitorStore`、`MonitoringClient`、`MonitorControlEndpoint` | 配置确认、身份匹配、快照、历史与两路诊断；保留通信版本 3 |
 
-`extensionStarts` 为兼容既有快照保留字段名，现表示监听实例初始化次数。主 App 的前台定时刷新只读共享快照或查询扩展；不会向扩展提供亮度缓存。开关开启调用保活接口，VPN 适配器负责首次准备，关闭调用 stop；系统过渡阶段禁用重复点击，外部断开也会反映到开关。
+VPN 连接、重连及断开过程中使用扩展宿主；其他时候使用 App 内宿主。由 App 发起 VPN 启动前，先停止本地采样，并等待已交给系统的通知完成及历史保存，然后才请求系统连接。由 App 关闭 VPN 时，先发送 `prepareHostHandoff` 停止扩展监听，等待 stopped 回复并合并最后历史，再同步日志及断开；连接实际停止后启动 App 内监听。两个方向都保留已取得的较新成功历史，避免用旧快照回退去重。系统从外部断开、强杀或读回不可用时，只能合并已取得的记录；未知结果保留在诊断中，不能宣称未读到的最终历史已同步。
+
+没有 VPN 时，PiP / Location 支持的 App 后台运行承载同一个 App 内监听；二者同时开启不会创建两个监听。全部保活关闭时，App 前台仍可采样，后台调度由系统决定。页面切换只影响显示，不停用保活或监听。场景离开前台停止 UI 刷新，不把场景变化当作后台服务停止。
+
+Auto Dark Shift 的 `isEnabled` 与保活开关独立。关闭后取消采样与未提交候选、清除心跳，保留保活、成功历史和已有计数；已经交给系统的 add 仍记录实际完成结果。重新开启从新的观测基准开始。旧配置没有 isEnabled 字段时默认开启；保存开关发生在 VPN 启动中时，首次可读取后对比持久 revision 并补应用最新配置。
+
+当前状态中的频率来自监听快照 `activePollInterval`，亮度来自采样快照，S 来自模型输出。外观来自 App 当前可见的系统 ColorScheme，不将 desiredTarget 或提交历史冒充系统其他 App 的实际外观。`extensionStarts` 保留旧字段名，表示监听实例初始化次数。
 
 ## 存储与跨进程控制
 
@@ -53,7 +56,9 @@ App 组合入口先探测共享目录的打开与读写，选择一种模式并�
 | `app-group-v1` | 共用 App Group；App 保存配置，扩展保存运行快照、成功历史和监听日志；消息确认实际应用版本 |
 | `local-ipc-v1` | AppRuntime / ProviderRuntime 分别位于各自私有容器；启动参数携带配置，运行时消息携带完整配置；App 缓存扩展返回的原始快照 |
 
-本地模式下，配置消息必须带有效参数及匹配 revision。扩展的成功历史保存在 ProviderRuntime，系统重新拉起不会被主 App 的旧历史覆盖。由 App 开启时携带最新保存参数；系统重新拉起优先保留扩展保存的配置，首次初始化可使用 VPN profile 的初始参数。
+App 内监听的配置、快照、历史及双日志位于私有 `LocalMonitoring` 目录；不会把该目录当成扩展共享目录。App 内日志与 Provider 日志分开保留，导出时汇合对应流并保留来源，宿主切换不会用本地监听日志覆盖已同步的 Provider 缓存。
+
+本地模式下，配置消息必须带有效参数及匹配 revision。扩展的成功历史保存在 ProviderRuntime，系统重新拉起不会被主 App 的旧历史覆盖。由 App 开启时携带最新保存参数及已获取的成功历史，Provider 只接受更新的历史；系统重新拉起优先保留扩展保存的配置，首次初始化可使用 VPN profile 的初始参数。
 
 查询不刷新采样心跳。App 停止连接后清除通信确认，本地缓存只代表上次获得的状态；不能直接访问扩展的私有文件。运行与 Boost 日志分别建立分页快照、同步与缓存，不宣称有界记录覆盖整个后台时段。Network Extension 的签名权限仍由系统验证。
 
@@ -64,25 +69,6 @@ Provider start/stop 与独立监听不依赖 App 状态查询成功。`MonitorCh
 配置先保存，再尝试即时应用。无回复无法判断消息是否已被处理，显示“已保存，应用结果未知”；不宣称即时成功、不自动停止正常运行，App 重新开启时通过启动参数使用最新配置。扩展明确拒绝、坏 JSON、版本失配、非法参数和存储失败仍是可处理错误，不归入 unavailable。
 
 事件回调、精确轮询间隔、sleep/wake 与完整日志覆盖用于诊断，不要求所有设备每次都产生所有记录。功能效果通过真实亮度条件、通知及外部切换观察；缺失观测保留未知，不生成心跳、样本或成功记录。
-
-## 参考的 PiP 生命周期接口
-
-参考仓库：[Yoroin/GlobalRefresh-PiP](https://github.com/Yoroin/GlobalRefresh-PiP)。本轮查看的提交为 `8004d96c9022a1ab281ef1a3beba2278ac6c024d`，代码见 [ViewController.swift](https://github.com/Yoroin/GlobalRefresh-PiP/blob/8004d96c9022a1ab281ef1a3beba2278ac6c024d/pip_swift/pip_swift/ViewController.swift)。其代码并没有可直接引入的统一保活协议，本项目参考其生命周期设计，未复制实现。
-
-| 上游生命周期 | 本项目抽象 | 以后接入时的要求 |
-| --- | --- | --- |
-| `preparePiPInfrastructureIfNeeded`、`setupPip` | `prepare()` | 检查支持和资源准备；View / ContentSource 归 PiP 适配器所有 |
-| `startPiPSmoothly`、`startPictureInPicture` | `start()` → starting | 只表示已请求启动，不能直接报 active |
-| `pictureInPictureControllerDidStartPictureInPicture` | `onStateChange(active)` | 确认系统启动后，宿主才启动独立监听实例 |
-| `pictureInPictureControllerWillStopPictureInPicture` | stopping | 宿主停止 / 暂停监听，清除采样心跳 |
-| `pictureInPictureControllerDidStopPictureInPicture` | stopped | 包括用户关闭、其他 PiP 挤占；清理监听和 PiP 资源 |
-| `failedToStartPictureInPictureWithError` | failed + lastError | 回传原始错误并清理部分初始化资源 |
-| `teardownPiPInfrastructure` | 停止后的资源清理 | 不让定时器、观察者、播放器或旧回调存活 |
-| `isPictureInPicturePossible` / `isPictureInPictureActive` | 准备可用性 / 真实状态 | 把系统实际状态与用户的启动意图区分开 |
-
-未来 PiP 适配器放在 `KeepAlive/`，由 App 组合入口替换选择。监听实例在主 App 进程创建，可使用 `LocalMonitoringClient`，无需 Provider Message。PiP source view、尺寸、内容挂载和媒体控制均留在适配器 / 宿主，不进入 `SwitchMonitor`。暂停 / 恢复的宿主策略应调用 sleep/wake；终止后创建新的监听实例，继续从持久化历史恢复去重。
-
-单独添加一个 PiP 保活类还不等于迁移完成：还需接入系统 delegate/KVO 状态、View 生命周期、后台权限、采样宿主和真机验收。后台 app scene 变化本身不能代替 PiP active/stopped 状态。VideoCall 内容容器与 PlayerLayer 是不同适配实现；高刷、静音音频、悬浮窗高度等不是切换监听的要求。[上游开发说明](https://github.com/Yoroin/GlobalRefresh-PiP/blob/8004d96c9022a1ab281ef1a3beba2278ac6c024d/DEVELOPMENT_PRD.md)
 
 ## 完整亮度日志
 

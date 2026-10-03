@@ -6,8 +6,25 @@ enum RuntimePhase: String, Codable { case starting, running, sleeping, stopping,
 enum SubmissionResult: String, Codable { case submitting, success, failed, blocked, cancelled }
 
 struct MonitorConfiguration: Codable, Equatable {
-    var revision = UUID().uuidString
-    var cooldown: TimeInterval = 3
+    var revision: String
+    var cooldown: TimeInterval
+    var isEnabled: Bool
+
+    init(revision: String = UUID().uuidString, cooldown: TimeInterval = 3, isEnabled: Bool = true) {
+        self.revision = revision
+        self.cooldown = cooldown
+        self.isEnabled = isEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey { case revision, cooldown, isEnabled }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        revision = try values.decode(String.self, forKey: .revision)
+        cooldown = try values.decode(TimeInterval.self, forKey: .cooldown)
+        isEnabled = try values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
+
     func validated() throws -> Self {
         guard cooldown.isFinite, cooldown >= 0 else {
             throw ProjectError.message("通知冷却时间必须为有限非负数。")
@@ -78,7 +95,7 @@ struct RuntimeSnapshot: Codable {
 }
 
 enum MonitorCommand: String, Codable {
-    case handshake, reloadConfiguration, queryStatus, exportDiagnostics, exportDiagnosticPage
+    case handshake, reloadConfiguration, queryStatus, prepareHostHandoff, exportDiagnostics, exportDiagnosticPage
 }
 
 enum MonitorLogStream: String, Codable, CaseIterable { case runtime, boost }

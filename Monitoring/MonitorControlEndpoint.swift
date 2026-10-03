@@ -36,6 +36,9 @@ import Foundation
                 }
                 switch request.command {
                 case .handshake, .queryStatus: reply = monitor.statusReply()
+                case .prepareHostHandoff:
+                    monitor.stop(reason: "host_handoff_to_app", finalPhase: .stopped) {}
+                    reply = monitor.statusReply()
                 case .reloadConfiguration:
                     if identity.storageMode == RuntimeStorageMode.localIPC.rawValue {
                         guard let configuration = request.configuration, let store = configurationStore,

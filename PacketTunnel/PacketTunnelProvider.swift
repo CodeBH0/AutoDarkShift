@@ -72,6 +72,13 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try selection.store.saveConfiguration(SharedJSON.decoder().decode(MonitorConfiguration.self, from: initialData))
                 }
             }
+            if let data = options?["initialHistory"] as? Data {
+                let incoming = try SharedJSON.decoder().decode(SubmissionHistory.self, from: data)
+                let saved = try selection.store.history()
+                if saved == nil || incoming.submittedAt > saved!.submittedAt {
+                    try selection.store.saveHistory(incoming)
+                }
+            }
             // This is the only composition point binding VPN hosting to the listener.
             monitor = try SwitchMonitor(store: selection.store, sampler: ScreenBrightnessSampler(),
                                         notifications: LocalModeNotificationSink(), diagnostic: { [weak self] detail in

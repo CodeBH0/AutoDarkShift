@@ -1,4 +1,25 @@
-# 验证记录（当前 1.0.1 / build 14）
+# 验证记录（当前 1.0.1 / build 15）
+
+## 2026-10-04 多方案保活、功能开关与原生 Tab（build 15）
+
+用户反馈 build 14 实机测试通过。本轮在既有 VPN 方案旁新增 PiP 与 Location，三种保活可独立同时开启；KeepAlive 抽象只管理平台生命周期，Auto Dark Shift 通过独立开关控制同一生产监听。VPN 与 App 内宿主交接时，停止旧采样并等待已提交的通知完成，合并实际取得的较新历史；无回复仍记录为不可观测。独立静音音频方案按用户要求取消。
+
+GUI 使用系统底部 Tab Bar：仪表、保活、信息均为独立 View，复用 AppController；切换监听与通知统计仍为二级模块。当前状态显示监听频率、S、采样亮度及当前 App 可见外观，未确认的开关状态明确提示等待确认，宿主切换清除旧快照。运行 / Boost 导出继续分开，App 内记录独立持久化，保留旧 Provider 缓存。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程、生成器与空白检查 | 通过：190 个工程对象、51 个工程文件；原生适配器仅进入 App，通用 KeepAlive 不依赖监听业务；生成器与工程一致，git diff --check 通过 |
+| core checks | 通过：61 项场景，含新增关闭 / 重新开启、旧配置兼容、在途通知结算后交接及真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 通过：43 个方法，0 失败；34 项模型、8 项多保活 / 宿主协调及包装 61 项运行时场景的测试，运行于 macOS |
+| 干净副本 | 通过：不含 AGENTS.md / DEVELOPMENT.md 的副本可验证与重建工程，生成结果相同 |
+| iPhone Release 编译与 IPA | 通过：已有 iPhoneOS 18.2 SDK，App / PacketTunnel 均为 1.0.1 / build 15、arm64、最低 iOS 17；未安装平台或模拟器，未生成 Xcode archive |
+| IPA 独立核对 | 通过：双组件版本、权限、原生框架边界、audio / location 后台模式和用途文案、占位签名、ZIP / SHA-256；797545 字节，SHA-256 `e6d138c39ce2c82e4fb38151199003e2dc8880ac93a26152ac0483ae7c899f7c` |
+| 产物与 Git 边界 | 原有 10 份 IPA 校验值不变；按用户明确授权覆盖本轮旧 build 15，清理临时 build 16；本地文档、日志、IPA、缓存和签名资料继续不提交 |
+| 新界面、权限、PiP / Location 后台持续性 | 未执行真机验收，由用户重签并按 DEVICE_ACCEPTANCE 专项测试；此前 build 14 通过为用户反馈 |
+
+本轮最初已生成 build 15，最终补充未确认状态提示与旧快照清理后临时打包 build 16。用户随后明确要求不保留 build 15、直接覆盖；最终在本地一次性打包副本中固定 build 15，重新编译最终源码并核对，原 build 15 被替换、临时 build 16 删除。标准 `tools/package_ipa.sh` 默认递增与拒绝覆盖策略保持不变，新增可选 `--direct-sdk` 只改变编译路径。没有使用占位签名冒充设备安装通过。
+
+最终本地记录位于忽略的 `build/validation-multi-keepalive/`：`core-checks-final.log`、`xctest-final.log`、`static-final.log`、`clean-static.log`、`package-ipa-build15-final.log`。最终双组件的编译、占位权限与独立核对在 `build/build15/unsigned-build.log`、`Signing/` 和 `ipa-verification.json`；这些文件不提交。
 
 ## 2026-10-04 二级菜单、独立导出入口与本地文档（build 14）
 

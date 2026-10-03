@@ -1,40 +1,16 @@
 import Foundation
 
-enum KeepAlivePhase: String {
-    case unavailable, stopped, starting, active, reasserting, stopping, failed
-    var canMessage: Bool { self == .active || self == .reasserting }
-    var canStart: Bool { self == .unavailable || self == .stopped || self == .failed }
-    var canStop: Bool { self == .starting || canMessage }
-}
-
-struct KeepAliveState: Equatable {
-    var phase: KeepAlivePhase = .unavailable
-    var description = "未准备"
-    var lastError: String?
-}
-
-/// No NetworkExtension, AVKit, or monitoring business operations in this contract.
-/// A future PiP implementation reports actual delegate/KVO state here.
-@MainActor protocol KeepAliveService: AnyObject {
-    var name: String { get }
-    var state: KeepAliveState { get }
-    var onStateChange: ((KeepAliveState) -> Void)? { get set }
-    func updateState()
-    func refresh() async throws
-    func prepare() async throws
-    func start() async throws
-    func stop()
-}
-
 /// Separate from keep-alive: a local PiP host can call the same runtime directly.
 @MainActor protocol MonitoringClient: AnyObject {
     func queryStatus() async throws -> MonitorReply
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply
+    func prepareHostHandoff() async throws -> MonitorReply
     func diagnostics(stream: MonitorLogStream) async throws -> String
 }
 
 extension MonitoringClient {
     func diagnostics() async throws -> String { try await diagnostics(stream: .runtime) }
+    func prepareHostHandoff() async throws -> MonitorReply { try await queryStatus() }
 }
 
 protocol MonitorStore: AnyObject {

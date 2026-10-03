@@ -28,7 +28,31 @@ import OSLog
             storageError = nil
         } catch { storage = nil; storageError = describeError(error) }
         let vpn = VPNKeepAliveService(storage: storage, storageError: storageError, record: record)
-        return AppController(keepAlive: vpn, monitoring: vpn, storage: storage, storageError: storageError,
-                             diagnostics: diagnostics, record: record)
+        let pip = PiPKeepAliveService(record: record)
+        let location = LocationKeepAliveService(record: record)
+        let manager = KeepAliveManager(services: [(.vpn, vpn), (.pip, pip), (.location, location)])
+        let monitoring: MonitoringHostCoordinator?
+        do {
+            guard let storage else { throw ProjectError.message(storageError ?? "配置存储不可用。") }
+            let local = try RuntimeStoreSelection.localStore(directoryName: "LocalMonitoring")
+            monitoring = MonitoringHostCoordinator(vpn: vpn, vpnState: { vpn.state },
+                configurationStore: storage.store, localStore: local, makeRuntime: {
+                    try SwitchMonitor(store: local, sampler: ScreenBrightnessSampler(),
+                                      notifications: LocalModeNotificationSink(), diagnostic: { detail in
+                        record("local_monitor_storage_error", ["error": detail])
+                    })
+                }, exportLocal: { stream in
+                    String(decoding: try local.exportData(metadata: ["scope": "app_monitor", "host": "app"],
+                        stream: stream, includeProviderCache: false), as: UTF8.self)
+                })
+        } catch {
+            monitoring = nil
+            record("local_monitor_setup_failed", ["error": describeError(error)])
+        }
+        let client: any MonitoringClient
+        if let monitoring { client = monitoring } else { client = vpn }
+        return AppController(keepAlive: vpn, monitoring: client, storage: storage,
+                             storageError: storageError, diagnostics: diagnostics, record: record,
+                             keepAliveManager: manager, hostCoordinator: monitoring, pipService: pip)
     }
 }

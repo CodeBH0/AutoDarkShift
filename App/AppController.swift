@@ -6,6 +6,9 @@ import UIKit
 @MainActor
 final class AppController: ObservableObject {
     @Published var configuration = MonitorConfiguration()
+    @Published private(set) var autoDarkShiftEnabled = true
+    @Published private(set) var keepAliveEntries: [KeepAliveEntry] = []
+    let pipService: PiPKeepAliveService?
     @Published private(set) var keepAliveState = KeepAliveState()
     @Published private(set) var runtimeConfirmed = false
     @Published private(set) var runtimeError: String?
@@ -27,7 +30,8 @@ final class AppController: ObservableObject {
     private var store: SharedStore?
     private let storageMode: RuntimeStorageMode
     private let fallbackReason: String?
-    private let switchControl: KeepAliveSwitchControl
+    private let keepAliveManager: KeepAliveManager
+    private let hostCoordinator: MonitoringHostCoordinator?
     private let keepAlive: any KeepAliveService
     private let monitoring: any MonitoringClient
     private let diagnosticsStore: SharedStore?
@@ -40,15 +44,21 @@ final class AppController: ObservableObject {
     private var diagnosticSyncedAt: [MonitorLogStream: Date] = [:]
     private var sessionGeneration = UUID()
     private var readback = MonitoringReadback()
+    private var vpnOperation: Bool?
+    private var queuedVPNIntent: Bool?
 
     init(keepAlive: any KeepAliveService, monitoring: any MonitoringClient,
          storage: RuntimeStoreSelection?, storageError: String?,
-         diagnostics: SharedStore?, record: @escaping (String, [String: String]) -> Void) {
+         diagnostics: SharedStore?, record: @escaping (String, [String: String]) -> Void,
+         keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
+         pipService: PiPKeepAliveService? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
         self.record = record
-        self.switchControl = KeepAliveSwitchControl(service: keepAlive)
+        self.keepAliveManager = keepAliveManager ?? KeepAliveManager(services: [(.vpn, keepAlive)])
+        self.hostCoordinator = hostCoordinator
+        self.pipService = pipService
         self.store = storage?.store
         self.storageMode = storage?.mode ?? .appGroup
         self.fallbackReason = storage?.fallbackReason
@@ -62,12 +72,35 @@ final class AppController: ObservableObject {
         record("app_launch", ["storageMode": self.storageMode.rawValue,
                               "identity": String(describing: RuntimeIdentity.installed(storageMode: self.storageMode)),
                               "storageError": self.storageError ?? "none", "storageFallbackReason": fallbackReason ?? "none"])
-        switchControl.onChange = { [weak self] in self?.updateSwitchState() }
-        keepAlive.onStateChange = { [weak self] state in self?.acceptState(state) }
+        autoDarkShiftEnabled = configuration.isEnabled
+        updateSwitchState()
+        self.keepAliveManager.onChange = { [weak self] in
+            guard let self else { return }
+            self.updateSwitchState()
+            self.acceptState(self.keepAlive.state)
+            Task {
+                do { try await self.hostCoordinator?.reconcile(); self.scheduleQuery() }
+                catch { self.appError = describeError(error) }
+            }
+        }
+        hostCoordinator?.onHostChange = { [weak self] in
+            guard let self else { return }
+            self.sessionGeneration = UUID()
+            self.statusTask?.cancel(); self.statusTask = nil
+            self.diagnosticTask?.cancel(); self.diagnosticTask = nil
+            self.lastDiagnosticSyncAt = .distantPast
+            self.diagnosticSyncErrors.removeAll(); self.diagnosticSyncedAt.removeAll()
+            self.runtimeConfirmed = false
+            self.snapshot = nil
+            self.readback.reset()
+            self.record("monitor_host_changed", ["host": self.hostCoordinator?.hostName ?? "VPN"])
+            self.scheduleQuery()
+        }
         acceptState(keepAlive.state)
         Task {
-            do { try await keepAlive.refresh() }
-            catch { appError = describeError(error); record("keepalive_load_error", ["error": describeError(error)]) }
+            await self.keepAliveManager.refresh()
+            do { try await self.hostCoordinator?.reconcile(); self.scheduleQuery() }
+            catch { appError = describeError(error); record("monitor_host_setup_error", ["error": describeError(error)]) }
             await refreshAuthorization()
         }
     }
@@ -75,6 +108,8 @@ final class AppController: ObservableObject {
     deinit { refreshTask?.cancel(); statusTask?.cancel(); diagnosticTask?.cancel() }
 
     var keepAliveName: String { keepAlive.name }
+    var canReadMonitoring: Bool { hostCoordinator?.canMessage ?? keepAliveState.phase.canMessage }
+    private var usesVPNMonitoring: Bool { hostCoordinator?.usesVPN ?? true }
     var keepAliveStatusText: String { keepAliveState.description }
 
     private func acceptState(_ state: KeepAliveState) {
@@ -82,6 +117,7 @@ final class AppController: ObservableObject {
         keepAliveState = state
         updateSwitchState()
         disconnectError = state.lastError
+        guard previous != state.phase, usesVPNMonitoring else { return }
         if !state.phase.canMessage {
             sessionGeneration = UUID()
             statusTask?.cancel()
@@ -105,13 +141,23 @@ final class AppController: ObservableObject {
     }
 
     private func scheduleQuery() {
-        guard statusTask == nil, keepAliveState.phase.canMessage, readback.shouldQuery(at: Date()) else { return }
+        guard statusTask == nil, canReadMonitoring, readback.shouldQuery(at: Date()) else { return }
         let token = sessionGeneration
         statusTask = Task { [weak self] in
             guard let self else { return }
             defer { if self.sessionGeneration == token { self.statusTask = nil } }
             do {
-                let reply = try await self.monitoring.queryStatus()
+                var reply = try await self.monitoring.queryStatus()
+                guard self.sessionGeneration == token, !Task.isCancelled else { return }
+                // A saved switch change during VPN setup may follow the captured start options.
+                // Reapply persisted configuration after the actual host becomes readable.
+                if self.vpnOperation == nil, let store = self.store, let snapshot = reply.snapshot,
+                   [.running, .sleeping].contains(snapshot.phase) {
+                    let saved = try store.configuration()
+                    if snapshot.appliedConfiguration.revision != saved.revision {
+                        reply = try await self.monitoring.applyConfiguration(saved)
+                    }
+                }
                 guard self.sessionGeneration == token, !Task.isCancelled else { return }
                 self.acceptReply(reply)
             } catch {
@@ -129,19 +175,23 @@ final class AppController: ObservableObject {
     }
     var samplingIsLive: Bool {
         guard let snapshot, snapshot.phase == .running, let age = heartbeatAge else { return false }
-        return age <= heartbeatLimit && keepAliveState.phase.canMessage && runtimeConfirmed
+        return age <= heartbeatLimit && canReadMonitoring && runtimeConfirmed && snapshot.appliedConfiguration.isEnabled
     }
     var samplingText: String {
+        if !autoDarkShiftEnabled {
+            if runtimeConfirmed, snapshot?.appliedConfiguration.isEnabled == false { return "Auto Dark Shift 已关闭" }
+            return "关闭开关已保存，等待监听确认"
+        }
         if samplingIsLive { return "监听正在采样（心跳有效）" }
         if keepAliveState.phase == .starting { return "保活正在开启" }
         if keepAliveState.phase == .stopping { return "保活正在关闭" }
-        if !keepAliveState.phase.canMessage { return "保活已关闭" }
+        if !canReadMonitoring { return "正在准备监听宿主" }
         if runtimeError != nil { return "读取监听状态出错，请查看错误信息" }
-        if runtimeNotice != nil { return "保活已连接，实时状态暂不可读取" }
-        if !runtimeConfirmed { return "保活已连接，正在读取监听状态" }
+        if runtimeNotice != nil { return "监听宿主已就绪，实时状态暂不可读取" }
+        if !runtimeConfirmed { return "正在读取监听状态" }
         if snapshot?.phase == .sleeping { return "监听睡眠中" }
         if let age = heartbeatAge, age > heartbeatLimit { return "最近状态较旧，等待刷新" }
-        return "保活已连接，等待采样记录"
+        return "等待采样记录"
     }
 
     /// Foreground refresh reads shared files or provider replies, never UIScreen brightness.
@@ -156,8 +206,9 @@ final class AppController: ObservableObject {
                 guard let self else { return }
                 self.now = Date()
                 self.refreshSnapshot()
-                self.keepAlive.updateState()
-                if self.storageMode == .localIPC { self.scheduleQuery() }
+                self.keepAliveManager.updateStates()
+                if self.storageMode == .localIPC || !self.usesVPNMonitoring ||
+                    self.snapshot?.appliedConfiguration.revision != self.configuration.revision { self.scheduleQuery() }
                 self.scheduleDiagnosticSync()
                 if ticks % 5 == 0 { await self.refreshAuthorization() }
                 ticks += 1
@@ -176,20 +227,96 @@ final class AppController: ObservableObject {
     }
 
     private func updateSwitchState() {
-        keepAliveEnabled = switchControl.isOn
-        keepAliveTransitioning = switchControl.isTransitioning
+        keepAliveEntries = keepAliveManager.entries.map { entry in
+            guard entry.id == .vpn, let vpnOperation else { return entry }
+            return KeepAliveEntry(id: entry.id, name: entry.name, state: entry.state,
+                isEnabled: vpnOperation || entry.isEnabled, isTransitioning: true)
+        }
+        if let vpn = keepAliveEntries.first(where: { $0.id == .vpn }) {
+            keepAliveEnabled = vpn.isEnabled
+            keepAliveTransitioning = vpn.isTransitioning
+        }
     }
 
-    func setKeepAliveEnabled(_ enabled: Bool) {
-        run {
-            self.disconnectError = nil
-            if !enabled, self.keepAliveState.phase.canMessage {
-                // Fetch final provider-originated records before losing access to the running host.
-                do { try await self.syncProviderDiagnostics() }
-                catch { self.record("provider_log_sync_before_stop_failed", ["error": describeError(error)]) }
+    func setKeepAliveEnabled(_ enabled: Bool, method: KeepAliveMethod = .vpn) {
+        if method == .vpn {
+            queuedVPNIntent = enabled
+            guard vpnOperation == nil else { return }
+            vpnOperation = enabled
+            updateSwitchState()
+            Task {
+                while let intent = self.queuedVPNIntent {
+                    self.queuedVPNIntent = nil
+                    self.vpnOperation = intent
+                    self.updateSwitchState()
+                    await self.applyKeepAliveIntent(intent, method: .vpn)
+                }
+                self.vpnOperation = nil
+                self.updateSwitchState()
+                self.readback.reset()
+                self.scheduleQuery()
             }
-            try await self.switchControl.setEnabled(enabled)
-            self.message = enabled ? "已请求开启，等待保活连接与监听确认。" : "已请求关闭保活。"
+        } else {
+            Task { await self.applyKeepAliveIntent(enabled, method: method) }
+        }
+    }
+
+    private func applyKeepAliveIntent(_ enabled: Bool, method: KeepAliveMethod) async {
+        do {
+            if method == .vpn {
+                if enabled {
+                    try await hostCoordinator?.prepareForVPNStart()
+                    if queuedVPNIntent == false {
+                        try await hostCoordinator?.finishVPNStartRequest()
+                        return
+                    }
+                } else if canReadMonitoring {
+                    do {
+                        let reply: MonitorReply
+                        if let hostCoordinator { reply = try await hostCoordinator.prepareForVPNStop() }
+                        else { reply = try await monitoring.queryStatus() }
+                        acceptReply(reply)
+                        try await syncProviderDiagnostics()
+                    } catch { record("provider_log_sync_before_stop_failed", ["error": describeError(error)]) }
+                }
+            }
+            try await keepAliveManager.setEnabled(enabled, method: method)
+            if method == .vpn { try await hostCoordinator?.finishVPNStartRequest() }
+            updateSwitchState()
+            message = enabled ? "已请求开启所选保活方案。" : "已请求关闭所选保活方案。"
+        } catch {
+            if method == .vpn { try? await hostCoordinator?.finishVPNStartRequest() }
+            appError = describeError(error)
+            record("keepalive_operation_error", ["method": method.rawValue, "error": describeError(error)])
+        }
+    }
+
+    func setAutoDarkShiftEnabled(_ enabled: Bool) {
+        guard !busy, enabled != autoDarkShiftEnabled else { return }
+        run {
+            var saved = self.configuration
+            saved.isEnabled = enabled
+            saved.revision = UUID().uuidString
+            guard let store = self.store else { throw ProjectError.message("配置存储不可用。") }
+            try store.saveConfiguration(saved.validated())
+            self.configuration = saved
+            self.autoDarkShiftEnabled = enabled
+            if self.canReadMonitoring {
+                do {
+                    let reply = try await self.monitoring.applyConfiguration(saved)
+                    guard reply.success, reply.appliedRevision == saved.revision else {
+                        throw ProjectError.message(reply.message)
+                    }
+                    self.acceptReply(reply)
+                    self.message = enabled ? "Auto Dark Shift 已开启。" : "Auto Dark Shift 已关闭，保活方案继续运行。"
+                } catch let error as MonitorChannelError {
+                    self.acceptMonitorError(error)
+                    self.message = "开关已保存；当前监听是否应用尚未确认，重新开启 VPN 将使用保存的配置。"
+                }
+            } else {
+                try await self.hostCoordinator?.reconcile()
+                self.message = "开关已保存。"
+            }
         }
     }
 
@@ -200,7 +327,7 @@ final class AppController: ObservableObject {
         runtimeNotice = nil
         readback.receivedReply(at: Date())
         // This is a read-only cache of provider-originated data, never app brightness or a new heartbeat.
-        if storageMode == .localIPC, let snapshot, let store {
+        if storageMode == .localIPC, usesVPNMonitoring, let snapshot, let store {
             do { try store.saveSnapshot(snapshot) }
             catch { storageError = "保存运行状态缓存失败：\(describeError(error))" }
         }
@@ -209,7 +336,7 @@ final class AppController: ObservableObject {
 
     private func scheduleDiagnosticSync() {
         let interval: TimeInterval = 15
-        guard diagnosticTask == nil, keepAliveState.phase.canMessage,
+        guard diagnosticTask == nil, canReadMonitoring, usesVPNMonitoring,
               Date().timeIntervalSince(lastDiagnosticSyncAt) >= interval else { return }
         let token = sessionGeneration
         lastDiagnosticSyncAt = Date()
@@ -225,10 +352,11 @@ final class AppController: ObservableObject {
     }
 
     private func syncProviderDiagnostics(stream requestedStream: MonitorLogStream? = nil) async throws {
+        guard usesVPNMonitoring else { return }
         let token = sessionGeneration
         guard let store else { throw ProjectError.message("App 日志缓存存储不可用。") }
         var failures: [String] = []
-        let availableStreams: [MonitorLogStream] = storageMode == .appGroup ? [.runtime] : [.runtime, .boost]
+        let availableStreams: [MonitorLogStream] = storageMode == .appGroup && usesVPNMonitoring ? [.runtime] : [.runtime, .boost]
         let streams = requestedStream.map { availableStreams.contains($0) ? [$0] : [] } ?? availableStreams
         for stream in streams {
             do {
@@ -271,7 +399,7 @@ final class AppController: ObservableObject {
             try store.saveConfiguration(saved)
             self.configuration = saved
             self.keepAlive.updateState()
-            if self.keepAliveState.phase.canMessage {
+            if self.canReadMonitoring {
                 let reply: MonitorReply
                 do { reply = try await self.monitoring.applyConfiguration(saved) }
                 catch {
@@ -344,7 +472,7 @@ final class AppController: ObservableObject {
         run {
             self.record("export_requested", ["stream": stream.rawValue])
             var syncFailures: [MonitorLogStream: String] = [:]
-            if self.keepAliveState.phase.canMessage && (self.storageMode == .localIPC || stream == .runtime) {
+            if self.canReadMonitoring && (!self.usesVPNMonitoring || self.storageMode == .localIPC || stream == .runtime) {
                 do { try await self.syncProviderDiagnostics(stream: stream) }
                 catch {
                     if error is CancellationError { throw error }
@@ -355,11 +483,14 @@ final class AppController: ObservableObject {
                 "deviceModel": UIDevice.current.model, "systemVersion": UIDevice.current.systemVersion,
                 "appVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown",
                 "buildVersion": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "unknown",
-                "keepAlive": self.keepAliveName, "keepAliveStatus": self.keepAliveStatusText,
+                "keepAlive": self.keepAliveEntries.filter { $0.isEnabled }.map { $0.id.rawValue }.joined(separator: ","),
+                "keepAliveStatus": self.keepAliveEntries.map { "\($0.id.rawValue)=\($0.state.phase.rawValue)" }.joined(separator: ","),
                 "protocolVersion": String(RuntimeIdentity.currentProtocolVersion),
                 "storageMode": self.storageMode.rawValue,
                 "storageFallbackReason": self.fallbackReason ?? "none",
                 "appGroupIdentifier": RuntimeIdentity.installed().appGroupIdentifier,
+                "monitorHost": self.hostCoordinator?.hostName ?? "VPN 扩展",
+                "autoDarkShiftEnabled": String(self.autoDarkShiftEnabled),
                 "runtimeConfirmed": String(self.runtimeConfirmed), "runtimeError": self.runtimeError ?? "none",
                 "readbackAvailability": self.readback.availability.rawValue,
                 "readbackDetail": self.readback.issue ?? "none",
@@ -378,18 +509,22 @@ final class AppController: ObservableObject {
             do {
                 guard let store = self.store else { throw ProjectError.message(self.storageError ?? "日志存储不可用。") }
                 data.append(try store.exportData(metadata: ["scope": self.storageMode == .appGroup ? "shared_runtime" : "app_runtime_cache"],
-                    stream: stream, includeProviderCache: stream == .runtime || self.storageMode == .localIPC))
+                    stream: stream, includeProviderCache: stream == .runtime || self.storageMode == .localIPC || !self.usesVPNMonitoring))
             } catch {
                 try self.appendExportEvent("\(stream.rawValue)_logs_unavailable", fields: ["error": describeError(error)], to: &data)
             }
+            if let coordinator = self.hostCoordinator {
+                do { data.append(Data(try coordinator.localDiagnostics(stream: stream).utf8)) }
+                catch { try self.appendExportEvent("app_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
+            }
             var stateData = Data()
-            if stream == .boost, self.storageMode == .appGroup {
+            if stream == .boost, self.storageMode == .appGroup, self.usesVPNMonitoring {
                 try self.appendExportEvent("boost_logs_sync_state", fields: ["source": "shared_runtime", "liveSync": "direct_read"], to: &stateData)
             } else {
                 do {
                     if let store = self.store, try store.providerDiagnostics(stream: stream) != nil {
                         try self.appendExportEvent("provider_logs_sync_state", fields: ["stream": stream.rawValue,
-                            "liveSync": self.keepAliveState.phase.canMessage && syncFailures[stream] == nil && self.diagnosticSyncedAt[stream] != nil ? "success" : "cached"], to: &stateData)
+                            "liveSync": self.canReadMonitoring && syncFailures[stream] == nil && self.diagnosticSyncedAt[stream] != nil ? "success" : "cached"], to: &stateData)
                     } else {
                         try self.appendExportEvent("provider_logs_missing", fields: ["stream": stream.rawValue,
                             "reason": "No provider snapshot has been acquired for this stream."], to: &stateData)
@@ -412,7 +547,7 @@ final class AppController: ObservableObject {
     }
 
     private func refreshSnapshot() {
-        guard storageMode == .appGroup else { return }
+        guard storageMode == .appGroup, usesVPNMonitoring else { return }
         do { if let store { snapshot = try store.snapshot() } }
         catch { storageError = "读取监听状态失败：\(describeError(error))" }
     }
