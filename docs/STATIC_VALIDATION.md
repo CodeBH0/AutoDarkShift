@@ -1,4 +1,25 @@
-# 验证记录（当前 1.0.1 / build 13）
+# 验证记录（当前 1.0.1 / build 14）
+
+## 2026-10-04 二级菜单、独立导出入口与本地文档（build 14）
+
+用户反馈 build 13 实机测试已通过，未补录设备型号、系统版本或各分项细节。本轮沿用数学模型 v2 和既有监听、通知逻辑；将“切换监听”与“通知与统计”放入二级页面，通知权限、查询、测试通知、统计与反馈均保留。前台刷新与分享 sheet 归属于整个导航栈，避免进入二级页面使根表单消失后停止刷新。
+
+“导出运行日志”和“导出 Boost 日志”每次只同步、分享选中的一路。运行导出保留 App 与 Provider 诊断；共享模式的 Boost 直接读取共享记录。本地缓存、错误和取消路径分别处理，后台自动同步与关闭保活前同步仍保留两路。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程静态检查 / 空白检查 | 通过：150 个工程对象、37 个工程文件；生成器同步移除本地文档引用；`git diff --check` 通过 |
+| core checks | 通过：57 项场景，包含真实 127.0.0.1 TCP 双流回传和离线缓存 |
+| Swift Package XCTest | 通过：35 个方法，0 失败，运行于 macOS |
+| 不含本地文档的干净副本 | 通过：工程静态检查、Package manifest 加载与生成后的工程检查；不要求 AGENTS.md / DEVELOPMENT.md 存在 |
+| iPhone Release 编译与 IPA | 通过：使用已有 iPhoneOS 18.2 SDK 直接构建 App target 及嵌入扩展，两个组件均为 1.0.1 / build 14、arm64、最低 iOS 17；未安装平台或模拟器 |
+| IPA 独立核对 | 通过：版本、标识符、Packet Tunnel / App Group 权限、占位签名、ZIP / SHA-256；670318 字节，SHA-256 `36d276fe3ac6eeb0721a15c36ce4f105382ac11a1c1facd29311cf0c60f2af9c` |
+| 本地文件与旧 IPA | AGENTS.md 与 DEVELOPMENT.md 保留本地并停止跟踪；原有 9 份 IPA 校验值不变 |
+| 本轮菜单操作、系统分享及真机测试 | 待用户重新签名并测试 build 14；核心测试和编译不代替此项 |
+
+本次按用户明确要求复用 build 14，覆盖该编号未产出 IPA 的旧输出。没有修改标准打包脚本的递增策略，后续通常打包仍继续递增。当前包由直接构建的 `build/build14/Products/Release-iphoneos/AutoDarkShift.app` 生成，使用标准脚本原有的占位签名、ZIP 与校验步骤；本轮没有生成 Xcode archive。
+
+验证输出保存在忽略的 `build/validation-menu-exports/`：`core-checks.log`、`xctest.log`、`static-final.log`、`clean-static.log`、`clean-generated-static.log`、`clean-package.json`、`package-ipa.log`。主 App / 扩展构建记录与核对位于 `build/build14/unsigned-build.log` 和 `build/build14/ipa-verification.json`。这些过程文件和 IPA 不提交。
 
 ## 2026-10-03 数学模型 v2、双日志与目录整理（build 13）
 

@@ -29,6 +29,8 @@ Config/Local.xcconfig
 *.provisionprofile
 
 # Local inputs, device exports and analysis intermediates
+/AGENTS.md
+/DEVELOPMENT.md
 /local-data/
 *.jsonl
 *.csv

@@ -166,9 +166,13 @@ for folder in ["App", "PacketTunnel", "Shared", "Monitoring", "Platform", "KeepA
         text = path.read_text(encoding="utf-8")
         assert not any(symbol in text for symbol in retired_symbols), f"Retired test component remains: {path}"
 assert all(not path.startswith(("archive/", "local-data/", "build/")) for path in local_files), "Local artifacts entered Xcode project"
+assert not {"AGENTS.md", "DEVELOPMENT.md"}.intersection(local_files), "Local developer documents entered Xcode project"
 package_text = (ROOT / "Package.swift").read_text(encoding="utf-8")
-for folder in ["archive", "local-data", "build"]:
+for folder in ["archive", "local-data", "build", "AGENTS.md", "DEVELOPMENT.md"]:
     assert f'"{folder}"' in package_text, f"{folder} must be excluded from Swift Package when present"
+ignore_rules = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+for path in ["AGENTS.md", "DEVELOPMENT.md"]:
+    assert f"/{path}" in ignore_rules, f"{path} must stay local"
 assert (ROOT / "docs/models/MathModel-v1.md").is_file(), "Historical mathematical model must be retained"
 assert (ROOT / "docs/models/MathModel-v2.md").is_file(), "Current mathematical model must be documented separately"
 print("PASS: retired test components and local inputs excluded from active targets; v1 retained and v2 documented.")
