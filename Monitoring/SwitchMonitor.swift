@@ -10,6 +10,7 @@ final class SwitchMonitor: MonitoringRuntime {
     private let diagnosticContext: () -> [String: String]
     private let clock: () -> Date
     private let uptime: () -> TimeInterval
+    private let pollingEnabled: Bool
     private var machine: BrightnessTrendStateMachine
     private var boostTrace: BoostTraceRecorder!
     private(set) var snapshot: RuntimeSnapshot
@@ -28,7 +29,8 @@ final class SwitchMonitor: MonitoringRuntime {
          notifications: any ModeNotificationSubmitting, clock: @escaping () -> Date = Date.init,
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
          diagnostic: @escaping (String) -> Void = { _ in },
-         diagnosticContext: @escaping () -> [String: String] = { [:] }) throws {
+         diagnosticContext: @escaping () -> [String: String] = { [:] },
+         pollingEnabled: Bool = true) throws {
         self.store = store
         self.sampler = sampler
         self.notifications = notifications
@@ -36,6 +38,7 @@ final class SwitchMonitor: MonitoringRuntime {
         self.uptime = uptime
         self.diagnostic = diagnostic
         self.diagnosticContext = diagnosticContext
+        self.pollingEnabled = pollingEnabled
         let configuration = try store.configuration()
         let previous = try store.snapshot()
         let history = try store.history()
@@ -186,7 +189,7 @@ final class SwitchMonitor: MonitoringRuntime {
             return
         }
         let interval = machine.pollInterval
-        snapshot.activePollInterval = interval
+        snapshot.activePollInterval = pollingEnabled ? interval : nil
         lastSampleAt = nil
         lastPollAt = nil
         lastPollUptime = nil
@@ -198,6 +201,7 @@ final class SwitchMonitor: MonitoringRuntime {
         sampler.start(interval: interval) { [weak self] reading in
             guard let self, self.observationGeneration == generation,
                   self.snapshot.phase == .running else { return }
+            guard self.pollingEnabled || reading.source != .poll else { return }
             if reading.source == .event { self.snapshot.counters.eventCallbacks += 1 }
             if reading.source == .poll { self.snapshot.counters.polls += 1 }
             self.sample(reading)
@@ -274,7 +278,10 @@ final class SwitchMonitor: MonitoringRuntime {
             trend: machine.trend, enteredBoost: !wasDynamic && machine.trend?.dynamicSampling == true,
             configuration: machine.configuration, desired: machine.desiredTarget, pending: machine.pendingTarget,
             candidate: candidate, inFlight: machine.inFlight)
-        let samplingChanged = snapshot.activePollInterval != machine.pollInterval
+        // Message-only bursts may end before the disk-write cadence expires.
+        // Keep the in-memory snapshot current without manufacturing another sample.
+        syncMachine()
+        let samplingChanged = pollingEnabled && snapshot.activePollInterval != machine.pollInterval
         if samplingChanged {
             sampler.updateInterval(machine.pollInterval)
             snapshot.activePollInterval = machine.pollInterval

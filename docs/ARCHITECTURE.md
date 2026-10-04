@@ -2,6 +2,8 @@
 
 当前接入 VPN、PiP 和 Location 三种独立保活方案，可以同时开启。`KeepAliveManager` 只管理注册、独立开关与平台状态；Auto Dark Shift 的配置、采样、通知和宿主选择在监听与 App 组合层。独立静音音频方案已按用户要求取消。具体平台行为和参考来源见 [KEEP_ALIVE.md](KEEP_ALIVE.md)。
 
+1.0.3 / build 1 增加 App 内 `UIScreen.BrightnessDidChangeMessage` 业务，与原监听严格互斥；保活开关仍独立。两者复用模型，各自保存状态和双日志，由 `ExclusiveMonitoringBusiness` 先停用、结算通知，再启动目标。新业务不轮询，要求新 SDK 和 iOS 26。当前是未编译的源码交接，入口与构建说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+
 ## 依赖关系
 
 ```mermaid

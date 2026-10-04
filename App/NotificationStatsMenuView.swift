@@ -18,7 +18,8 @@ struct NotificationStatsMenuView: View {
             }
 
             Section {
-                if let snapshot = controller.snapshot {
+                LabeledContent("当前业务", value: controller.activeBusinessText)
+                if let snapshot = controller.displayedSnapshot {
                     if let submission = snapshot.submission {
                         LabeledContent("最近提交结果", value: submission.result.rawValue)
                         LabeledContent("请求目标", value: submission.target.rawValue)

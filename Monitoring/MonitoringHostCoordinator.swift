@@ -71,6 +71,108 @@ import Foundation
         try await reconcile()
     }
 
+    /// Disables this business and waits until its samples are stopped and any
+    /// notification request already handed to the system has a terminal result.
+    /// The VPN remains connected; only its monitoring runtime is disabled.
+    func disableAndDrain(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
+        let disabled = try configuration.validated()
+        guard !disabled.isEnabled else {
+            throw ProjectError.message("disableAndDrain 需要已关闭的监听配置。")
+        }
+        try configurationStore.saveConfiguration(disabled)
+        try localStore.saveConfiguration(disabled)
+
+        if let reconcileTask { try await reconcileTask.value }
+
+        if usesVPN {
+            let initial = try await vpn.queryStatus()
+            guard initial.success, let initialSnapshot = initial.snapshot else {
+                throw ProjectError.message("VPN 监听状态不可读：\(initial.message)")
+            }
+            if let history = initialSnapshot.history { try mergeHistory(history) }
+            if initialSnapshot.phase == .stopped && initialSnapshot.submission?.result != .submitting {
+                return initial
+            }
+            let applied = try await vpn.applyConfiguration(disabled)
+            guard applied.success, applied.appliedRevision == disabled.revision else {
+                throw ProjectError.message("VPN 扩展未确认关闭监听：\(applied.message)")
+            }
+            var reply = applied
+            let deadline = ProcessInfo.processInfo.systemUptime + 5
+            while true {
+                guard reply.success, let snapshot = reply.snapshot else {
+                    throw ProjectError.message("VPN 监听关闭状态不可读：\(reply.message)")
+                }
+                if let history = snapshot.history { try mergeHistory(history) }
+                if Self.isDisabledAndSettled(snapshot, revision: disabled.revision) ||
+                    (snapshot.phase == .stopped && snapshot.submission?.result != .submitting) {
+                    return reply
+                }
+                guard ProcessInfo.processInfo.systemUptime < deadline else {
+                    throw MonitorChannelError.bridgeUnavailable("VPN 监听未能确认停采样及通知结算。")
+                }
+                try await Task.sleep(nanoseconds: 100_000_000)
+                reply = try await vpn.queryStatus()
+            }
+        }
+
+        guard let current = runtime else {
+            let prior = try localStore.snapshot()
+            if let history = prior?.history { try mergeHistory(history) }
+            var snapshot = RuntimeSnapshot(instanceID: "not-started", phase: .stopped,
+                history: prior?.history, appliedConfiguration: disabled,
+                counters: prior?.counters ?? RuntimeCounters())
+            snapshot.sample = nil
+            snapshot.heartbeatAt = nil
+            snapshot.activePollInterval = nil
+            // A prior process's snapshot is historical. Keep only a terminal submission;
+            // an orphaned `submitting` record cannot be completed by this process.
+            if let submission = prior?.submission, submission.result != .submitting {
+                snapshot.submission = submission
+            }
+            try localStore.saveSnapshot(snapshot)
+            return MonitorReply(success: true, message: "App 内监听未初始化或已停止。", snapshot: snapshot)
+        }
+
+        if current.snapshot.phase == .running || current.snapshot.phase == .sleeping {
+            let applied = current.reload(expectedRevision: disabled.revision)
+            guard applied.success, applied.appliedRevision == disabled.revision else {
+                throw ProjectError.message("App 内监听未确认关闭配置：\(applied.message)")
+            }
+        } else if current.snapshot.phase != .stopped && current.snapshot.phase != .failed &&
+                    current.snapshot.phase != .stopping {
+            throw MonitorChannelError.bridgeUnavailable("App 内监听状态无法确认。")
+        }
+
+        let deadline = ProcessInfo.processInfo.systemUptime + 5
+        while !Self.isDisabledAndSettled(current.snapshot, revision: disabled.revision) &&
+                !(current.snapshot.phase == .stopped && current.snapshot.submission?.result != .submitting) {
+            guard ProcessInfo.processInfo.systemUptime < deadline else {
+                throw MonitorChannelError.bridgeUnavailable("App 内监听未能确认停采样及通知结算。")
+            }
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
+        await withCheckedContinuation { continuation in
+            current.stop(reason: "business_disabled", finalPhase: .stopped) { continuation.resume() }
+        }
+        if let history = current.snapshot.history { try mergeHistory(history) }
+        runtime = nil
+        let reply = current.statusReply()
+        guard reply.success, reply.snapshot?.phase == .stopped,
+              reply.snapshot?.submission?.result != .submitting else {
+            throw MonitorChannelError.bridgeUnavailable("App 内监听停止尚未确认。")
+        }
+        publishHost("none")
+        log("monitor_host_released", ["reason": "business_disabled"])
+        return reply
+    }
+
+    private static func isDisabledAndSettled(_ snapshot: RuntimeSnapshot, revision: String) -> Bool {
+        snapshot.appliedConfiguration.revision == revision &&
+            !snapshot.appliedConfiguration.isEnabled && snapshot.activePollInterval == nil &&
+            snapshot.submission?.result != .submitting
+    }
+
     func prepareForVPNStop() async throws -> MonitorReply {
         var reply = try await vpn.prepareHostHandoff()
         let deadline = ProcessInfo.processInfo.systemUptime + 5
@@ -84,6 +186,35 @@ import Foundation
             try await Task.sleep(nanoseconds: 100_000_000)
             reply = try await vpn.queryStatus()
         }
+    }
+
+    /// Performs a full host handoff. Business switches use disableAndDrain so a
+    /// VPN host can remain connected with monitoring disabled.
+    func prepareHostHandoff() async throws -> MonitorReply {
+        if usesVPN { return try await prepareForVPNStop() }
+
+        guard let current = runtime else {
+            guard let snapshot = try localStore.snapshot(), snapshot.phase == .stopped,
+                  snapshot.submission?.result != .submitting else {
+                throw MonitorChannelError.bridgeUnavailable("App 内监听没有可确认的停止快照。")
+            }
+            if let history = snapshot.history { try mergeHistory(history) }
+            return MonitorReply(success: true, message: "App 内监听已停止。", snapshot: snapshot)
+        }
+
+        await withCheckedContinuation { continuation in
+            current.stop(reason: "business_handoff", finalPhase: .stopped) { continuation.resume() }
+        }
+        if let history = current.snapshot.history { try mergeHistory(history) }
+        runtime = nil
+        let reply = current.statusReply()
+        guard reply.success, reply.snapshot?.phase == .stopped,
+              reply.snapshot?.submission?.result != .submitting else {
+            throw MonitorChannelError.bridgeUnavailable("App 内监听停止尚未确认。")
+        }
+        publishHost("none")
+        log("monitor_host_released", ["reason": "business_handoff"])
+        return reply
     }
 
     func reconcile() async throws {

@@ -1,10 +1,14 @@
 # iPhone 重签 IPA
 
+当前源码为 **1.0.3 / build 1**，按用户要求暂停本机编译，尚无该版本 IPA。新 `BrightnessDidChangeMessage` 业务要求 iOS 26 SDK；迁移至 Xcode 26 后首次打包使用 `bash tools/package_ipa.sh --direct-sdk --current-build`，说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。之后默认递增 build，构建目录按 `build/<版本>/build<编号>/` 隔离，旧产物不覆盖。以下为已打包的 build 18 历史记录。
+
+## 1.0.2 / build 18 历史包
+
 已使用 Xcode 16.2 / iOS 18.2 SDK 直接编译 App target，构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。未安装 iOS 平台或模拟器。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.2，build 18，通信协议 3。
 
 本次正常递增至 build 18，版本更新到 1.0.2。Location 改为连续定位，增加权限变化、暂停后恢复、旧会话回调隔离和有限过渡任务清理；参考本地华中大体育砸壳包的运动页后台定位路径，证据与区别见 [LOCATION_REFERENCE.md](LOCATION_REFERENCE.md)。界面增加前台开启、位置用途及耗电提示，运行日志可分别核对定位回调、亮度读取和通知结果。
 
-文件：`build/AutoDarkShift-1.0.1-build18-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
+文件：`build/AutoDarkShift-1.0.2-build18-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
 
 ## 签名时保留的内容
 

@@ -1,4 +1,14 @@
-# 验证记录（当前 1.0.2 / build 18）
+# 验证记录（当前源码 1.0.3 / build 1）
+
+## 2026-10-05 类型化亮度消息业务：源码交接
+
+按用户反馈回退 build 19 临时读取试验，基线为 `fdc9a55`（build 18）。新增 App 内 `UIScreen.BrightnessDidChangeMessage` 输入，与原业务互斥；复用模型，关闭新业务的轮询，分开保存状态与日志，先确认停采样及已提交通知结算再启用目标。源码配置为 1.0.3 / build 1。
+
+用户要求必须使用新 SDK、暂停本机编译，移至其他环境尝试。因此本轮 **没有执行 Swift 编译、core checks、Swift Package XCTest、iPhoneOS 构建或 IPA 打包**。新增互斥、通知结算、首次启动与消息采样回归测试已提供，结果待新环境运行。源码审查及 Python 工程检查的范围仅是文件归属、工程结构、配置和边界；不能确认新 SDK 编译结果或实际系统通知行为。迁移步骤见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+
+已有 build 18 / 19 及其他历史 IPA 保留。本节之后的 core、XCTest、编译和 IPA 成功记录均属于其标注的旧版本，不代表当前源码已经通过。
+
+本轮静态检查已通过：208 个工程对象、58 个文件及两个共享 Scheme，主 App / 扩展 / 核心测试归属正确；提供 68 个唯一 XCTest 方法但未执行。打包脚本语法、4 个临时目录中的版本 / build 编号保留场景和 `git diff --check` 通过；15 份既有 IPA 的 SHA-256 与回退前基线一致。结果保存在本地 `build/validation-darwin-brightness-20261005/source-validation.json`，不进入提交。
 
 ## 2026-10-05 Location 连续后台会话（1.0.2 / build 18）
 

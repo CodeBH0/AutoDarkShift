@@ -76,8 +76,58 @@ import UIKit
         }
         let client: any MonitoringClient
         if let monitoring { client = monitoring } else { client = vpn }
+        let messageMonitoring: MonitoringHostCoordinator?
+        let messageStore: SharedStore?
+        let businesses: ExclusiveMonitoringBusiness?
+        let messageSetupError: String?
+        do {
+            guard let storage else { throw ProjectError.message(storageError ?? "配置存储不可用。") }
+            let local = try RuntimeStoreSelection.localStore(directoryName: "MessageMonitoring")
+            let saved = try local.configuration(defaultValue: MonitorConfiguration(isEnabled: false))
+            try local.saveConfiguration(saved)
+            weak var messageHost: MonitoringHostCoordinator?
+            let messageContext: @MainActor () -> [String: String] = {
+                let snapshot = messageHost?.localRuntimeSnapshot
+                return context().merging([
+                    "business": "message", "samplingMode": "typed_message_only", "listenerHost": "app",
+                    "runtimePhase": snapshot?.phase.rawValue ?? "none", "pollInterval": "none",
+                    "heartbeatAt": snapshot?.heartbeatAt?.ISO8601Format() ?? "none", "lastPollAt": "none"
+                ]) { _, new in new }
+            }
+            let coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState() },
+                configurationStore: local, localStore: local, makeRuntime: {
+                    guard #available(iOS 26.0, *) else {
+                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
+                    }
+                    return try SwitchMonitor(store: local,
+                        sampler: ScreenBrightnessMessageSampler(screen: UIScreen.main, record: record, context: messageContext),
+                        notifications: LocalModeNotificationSink(), diagnostic: { detail in
+                            record("message_monitor_storage_error", ["error": detail])
+                        }, diagnosticContext: messageContext, pollingEnabled: false)
+                }, exportLocal: { stream in
+                    String(decoding: try local.exportData(metadata: ["scope": "message_monitor", "business": "message",
+                        "host": "app", "samplingMode": "typed_message_only"], stream: stream,
+                        includeProviderCache: false), as: UTF8.self)
+                }, record: record, context: messageContext)
+            messageHost = coordinator
+            messageMonitoring = coordinator
+            messageStore = local
+            businesses = ExclusiveMonitoringBusiness(standard: client, standardStore: storage.store,
+                message: coordinator, messageStore: local, preflightMessage: {
+                    guard #available(iOS 26.0, *) else {
+                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
+                    }
+                })
+            messageSetupError = nil
+        } catch {
+            messageMonitoring = nil; messageStore = nil; businesses = nil
+            messageSetupError = describeError(error)
+            record("message_monitor_setup_failed", ["error": describeError(error)])
+        }
         return AppController(keepAlive: vpn, monitoring: client, storage: storage,
                              storageError: storageError, diagnostics: diagnostics, record: record,
-                             keepAliveManager: manager, hostCoordinator: monitoring, pipService: pip)
+                             keepAliveManager: manager, hostCoordinator: monitoring, pipService: pip,
+                             messageCoordinator: messageMonitoring, messageStore: messageStore,
+                             businesses: businesses, messageSetupError: messageSetupError)
     }
 }

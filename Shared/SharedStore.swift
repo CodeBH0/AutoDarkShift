@@ -80,8 +80,13 @@ final class SharedStore: MonitorStore {
     }
 
     func configuration() throws -> MonitorConfiguration {
+        try configuration(defaultValue: MonitorConfiguration(revision: "defaults-v1"))
+    }
+
+    /// A new parallel business starts disabled without changing legacy defaults.
+    func configuration(defaultValue: MonitorConfiguration) throws -> MonitorConfiguration {
         try locked(exclusive: false) {
-            try (read(MonitorConfiguration.self, name: "configuration.json") ?? MonitorConfiguration(revision: "defaults-v1")).validated()
+            try (read(MonitorConfiguration.self, name: "configuration.json") ?? defaultValue).validated()
         }
     }
     func saveConfiguration(_ configuration: MonitorConfiguration) throws {

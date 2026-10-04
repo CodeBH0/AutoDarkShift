@@ -40,7 +40,7 @@ def file(path, kind):
 shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/SharedStore.swift", "Shared/PollingScheduler.swift",
           "Shared/ServiceContracts.swift", "Shared/MonitorMessageChannel.swift", "Shared/RuntimeStorage.swift",
           "Shared/KeepAliveContracts.swift", "Shared/KeepAliveManager.swift", "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
-monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift", "Monitoring/MonitoringHostCoordinator.swift"]
+monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift", "Monitoring/MonitoringHostCoordinator.swift", "Monitoring/ExclusiveMonitoringBusiness.swift"]
 platform = ["Platform/ScreenBrightnessSampler.swift", "Platform/LocalModeNotificationSink.swift", "Platform/LoopbackMonitorTransport.swift"]
 keepalive = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "KeepAlive").glob("*.swift"))
 app = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "App").glob("*.swift"))

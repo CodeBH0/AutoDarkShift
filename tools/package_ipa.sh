@@ -6,12 +6,14 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
 BUILD_MODE=archive
-if [[ "${1:-}" == --direct-sdk && "$#" == 1 ]]; then
-    BUILD_MODE=direct-sdk
-elif [[ "$#" != 0 ]]; then
-    echo "Usage: bash tools/package_ipa.sh [--direct-sdk]" >&2
-    exit 1
-fi
+USE_CURRENT_BUILD=0
+for OPTION in "$@"; do
+    case "$OPTION" in
+        --direct-sdk) BUILD_MODE=direct-sdk ;;
+        --current-build) USE_CURRENT_BUILD=1 ;;
+        *) echo "Usage: bash tools/package_ipa.sh [--direct-sdk] [--current-build]" >&2; exit 1 ;;
+    esac
+done
 
 # Prefer an explicit developer directory, then the selected Xcode installation.
 # This machine also has a complete Xcode in Downloads.
@@ -30,12 +32,19 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
 fi
 
 /usr/bin/xcrun --sdk iphoneos --show-sdk-path >/dev/null
+SDK_VERSION="$(/usr/bin/xcrun --sdk iphoneos --show-sdk-version)"
+if [[ "${SDK_VERSION%%.*}" -lt 26 ]]; then
+    echo "This source requires Xcode 26 or newer with an iOS 26 SDK (UIScreen.BrightnessDidChangeMessage)." >&2
+    exit 1
+fi
 mkdir -p build
 
-# Each packaging invocation consumes a new shared build number, including failed builds.
-# Never reuse a published number or overwrite an earlier IPA/archive.
-APP_BUILD="$(python3 - <<'PY'
+# Default packaging consumes a new shared build number, including failed builds.
+# --current-build reserves the configured number once for an explicit source handoff.
+# Numbers are scoped to the marketing version; never reuse that version/build pair.
+APP_BUILD="$(PACKAGING_USE_CURRENT_BUILD="$USE_CURRENT_BUILD" python3 - <<'PY'
 from pathlib import Path
+import os
 import re
 
 root = Path.cwd()
@@ -45,16 +54,28 @@ pattern = r"^CURRENT_PROJECT_VERSION\s*=\s*([0-9]+)[ \t]*$"
 matches = list(re.finditer(pattern, text, re.M))
 if len(matches) != 1:
     raise SystemExit("Expected one numeric CURRENT_PROJECT_VERSION in Config/Project.xcconfig.")
-used = [int(matches[0].group(1))]
-for artifact in (root / "build").glob("AutoDarkShift-*-build*-resign.ipa"):
+current = int(matches[0].group(1))
+used = []
+versions = re.findall(r"^MARKETING_VERSION\s*=\s*([0-9]+\.[0-9]+\.[0-9]+)[ \t]*$", text, re.M)
+if len(versions) != 1:
+    raise SystemExit("Expected one numeric MARKETING_VERSION in Config/Project.xcconfig.")
+version = versions[0]
+for artifact in (root / "build").glob(f"AutoDarkShift-{version}-build*-resign.ipa"):
     match = re.search(r"-build([0-9]+)-resign\.ipa$", artifact.name)
     if match:
         used.append(int(match.group(1)))
-for directory in (root / "build").glob("build[0-9]*"):
+for directory in (root / "build" / version).glob("build[0-9]*"):
     match = re.fullmatch(r"build([0-9]+)", directory.name)
     if match:
         used.append(int(match.group(1)))
-number = max(used) + 1
+if os.environ.get("PACKAGING_USE_CURRENT_BUILD") == "1":
+    # Explicit handoff of a reserved source version, such as 1.0.3 / build 1.
+    # This option never overwrites an earlier attempt for the same version/build.
+    number = current
+    if number < 1 or number in used:
+        raise SystemExit("The configured version/build is already used or invalid; package the next build instead.")
+else:
+    number = max([current] + used) + 1
 configuration.write_text(re.sub(pattern, f"CURRENT_PROJECT_VERSION = {number}", text, count=1, flags=re.M), encoding="utf-8")
 print(number)
 PY
@@ -64,13 +85,14 @@ if [[ -z "$APP_VERSION" ]]; then
     echo "Expected a numeric marketing version in Config/Project.xcconfig." >&2
     exit 1
 fi
-BUILD_ROOT="$PROJECT_ROOT/build/build$APP_BUILD"
+BUILD_ROOT="$PROJECT_ROOT/build/$APP_VERSION/build$APP_BUILD"
 ARCHIVE_PATH="$BUILD_ROOT/AutoDarkShift.xcarchive"
 IPA_PATH="$PROJECT_ROOT/build/AutoDarkShift-$APP_VERSION-build$APP_BUILD-resign.ipa"
 if [[ -e "$BUILD_ROOT" || -e "$IPA_PATH" || -e "$IPA_PATH.sha256" ]]; then
     echo "Build $APP_BUILD output already exists; refusing to overwrite it." >&2
     exit 1
 fi
+mkdir -p "$(dirname "$BUILD_ROOT")"
 mkdir "$BUILD_ROOT"
 echo "Building $APP_VERSION / build $APP_BUILD ($BUILD_MODE); log: $BUILD_ROOT/unsigned-build.log"
 if [[ "$BUILD_MODE" == direct-sdk ]]; then
