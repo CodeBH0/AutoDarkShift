@@ -12,6 +12,15 @@ import Foundation
 
     private init() {}
 
+    /// VideoCall's PiP-only route has no media lease. Keep the reference's
+    /// inactive audio policy without overriding another adapter's owned session.
+    func configurePiPOnlyIfUnowned() throws -> Bool {
+        guard owners.isEmpty else { return false }
+        try session.setActive(false, options: [.notifyOthersOnDeactivation])
+        try session.setCategory(.soloAmbient, mode: .default)
+        return true
+    }
+
     func acquire() throws -> UUID {
         let token = UUID()
         if owners.isEmpty {

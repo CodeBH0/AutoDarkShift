@@ -108,6 +108,87 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertEqual(remote, "vpn-boost\n")
         XCTAssertTrue(fixture.runtimes.isEmpty)
     }
+
+    @MainActor func testBackgroundWithoutActivePipPausesLocalRuntimeAndActivePipResumesIt() async throws {
+        let fixture = HostFixture()
+        try await fixture.coordinator.reconcile()
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        XCTAssertEqual(runtime.samples, 1)
+
+        // PiP starting, stopped, or failed all map to execution disallowed.
+        fixture.coordinator.setAppExecutionAllowed(false)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertEqual(runtime.sleepCalls, 1)
+        XCTAssertNil(runtime.snapshot.heartbeatAt)
+
+        // Only the caller's confirmed active/reasserting platform state grants it again.
+        fixture.coordinator.setAppExecutionAllowed(true)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.wakeCalls, 1)
+    }
+
+    @MainActor func testBackgroundRuntimeCreatedWithoutKeepAliveDoesNotSample() async throws {
+        let fixture = HostFixture()
+        fixture.coordinator.setAppExecutionAllowed(false)
+        try await fixture.coordinator.reconcile()
+
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        XCTAssertEqual(runtime.samples, 0)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertTrue(runtime.snapshot.appliedConfiguration.isEnabled)
+
+        // Configuration remains writable while asleep and does not wake sampling.
+        var configuration = fixture.configuration.config
+        configuration.isEnabled = false
+        configuration.revision = "sleeping-update"
+        _ = try await fixture.coordinator.applyConfiguration(configuration)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertFalse(runtime.snapshot.appliedConfiguration.isEnabled)
+        XCTAssertEqual(runtime.samples, 0)
+    }
+
+    @MainActor func testForegroundRestoresSamplingWithoutAnyBackgroundKeepAlive() async throws {
+        let fixture = HostFixture()
+        try await fixture.coordinator.reconcile()
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        fixture.coordinator.setAppExecutionAllowed(false)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+
+        // Foreground policy is independent of PiP or Location service status.
+        fixture.coordinator.setAppExecutionAllowed(true)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.samples, 2)
+    }
+
+    @MainActor func testLocalExecutionPauseDoesNotAffectVPNOwnedRuntime() async throws {
+        let fixture = HostFixture()
+        fixture.vpnState.phase = .active
+        fixture.coordinator.setAppExecutionAllowed(false)
+        try await fixture.coordinator.reconcile()
+        XCTAssertTrue(fixture.coordinator.usesVPN)
+        XCTAssertTrue(fixture.runtimes.isEmpty)
+        XCTAssertEqual(fixture.vpn.reply.snapshot?.phase, .starting)
+    }
+
+    @MainActor func testBackgroundHostConstructionFailureRestoresSavedConfiguration() async throws {
+        let fixture = HostFixture()
+        fixture.constructionError = ProjectError.message("construction failed")
+        fixture.coordinator.setAppExecutionAllowed(false)
+        do {
+            try await fixture.coordinator.reconcile()
+            XCTFail("Expected failed construction")
+        } catch {
+            XCTAssertTrue(fixture.local.config.isEnabled)
+            XCTAssertFalse(fixture.coordinator.canMessage)
+            XCTAssertTrue(fixture.runtimes.isEmpty)
+        }
+        fixture.constructionError = nil
+        try await fixture.coordinator.reconcile()
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        XCTAssertEqual(runtime.samples, 0)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertTrue(runtime.snapshot.appliedConfiguration.isEnabled)
+    }
 }
 
 @MainActor private final class TestKeepAlive: KeepAliveService {
@@ -146,23 +227,45 @@ private final class HostStore: MonitorStore {
 
 @MainActor private final class HostRuntime: MonitoringRuntime {
     var snapshot: RuntimeSnapshot
+    let currentConfiguration: () -> MonitorConfiguration
     var holdStop = false
     var finishStop: (() -> Void)?
     var stops = 0
-    init(configuration: MonitorConfiguration) {
+    var samples = 0
+    var sleepCalls = 0
+    var wakeCalls = 0
+    init(configuration: MonitorConfiguration, currentConfiguration: @escaping () -> MonitorConfiguration) {
+        self.currentConfiguration = currentConfiguration
         snapshot = RuntimeSnapshot(instanceID: "test-local", appliedConfiguration: configuration, counters: RuntimeCounters())
     }
-    func start() throws { snapshot.phase = .running }
+    func start() throws {
+        snapshot.phase = .running
+        if snapshot.appliedConfiguration.isEnabled { samples += 1 }
+    }
     func fail(_ error: Error, completion: @escaping () -> Void) { completion() }
     func stop(reason: String, finalPhase: RuntimePhase, completion: @escaping () -> Void) {
         stops += 1
         if holdStop { finishStop = { self.snapshot.phase = finalPhase; completion() } }
         else { snapshot.phase = finalPhase; completion() }
     }
-    func sleep() {}
-    func wake() {}
-    func reload(expectedRevision: String?) -> MonitorReply { statusReply() }
-    func statusReply() -> MonitorReply { MonitorReply(success: true, message: "local", snapshot: snapshot) }
+    func sleep() {
+        sleepCalls += 1
+        snapshot.phase = .sleeping
+        snapshot.heartbeatAt = nil
+    }
+    func wake() {
+        wakeCalls += 1
+        snapshot.phase = .running
+        if snapshot.appliedConfiguration.isEnabled { samples += 1 }
+    }
+    func reload(expectedRevision: String?) -> MonitorReply {
+        snapshot.appliedConfiguration = currentConfiguration()
+        return statusReply()
+    }
+    func statusReply() -> MonitorReply {
+        MonitorReply(success: true, message: "local", appliedRevision: snapshot.appliedConfiguration.revision,
+                     snapshot: snapshot)
+    }
     func flushDiagnostics() {}
 }
 
@@ -181,9 +284,11 @@ private final class HostStore: MonitorStore {
     let vpn = HostVPN()
     var vpnState = KeepAliveState(phase: .stopped)
     var runtimes: [HostRuntime] = []
+    var constructionError: Error?
     lazy var coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { self.vpnState },
         configurationStore: configuration, localStore: local, makeRuntime: {
-            let runtime = HostRuntime(configuration: self.local.config)
+            if let error = self.constructionError { throw error }
+            let runtime = HostRuntime(configuration: self.local.config, currentConfiguration: { self.local.config })
             self.runtimes.append(runtime)
             return runtime
         }, exportLocal: { "app-\($0.rawValue)\n" })

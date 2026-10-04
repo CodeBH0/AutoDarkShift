@@ -8,7 +8,6 @@ final class AppController: ObservableObject {
     @Published var configuration = MonitorConfiguration()
     @Published private(set) var autoDarkShiftEnabled = true
     @Published private(set) var keepAliveEntries: [KeepAliveEntry] = []
-    let pipService: PiPKeepAliveService?
     @Published private(set) var keepAliveState = KeepAliveState()
     @Published private(set) var runtimeConfirmed = false
     @Published private(set) var runtimeError: String?
@@ -44,21 +43,20 @@ final class AppController: ObservableObject {
     private var diagnosticSyncedAt: [MonitorLogStream: Date] = [:]
     private var sessionGeneration = UUID()
     private var readback = MonitoringReadback()
+    private var appIsForeground = true
     private var vpnOperation: Bool?
     private var queuedVPNIntent: Bool?
 
     init(keepAlive: any KeepAliveService, monitoring: any MonitoringClient,
          storage: RuntimeStoreSelection?, storageError: String?,
          diagnostics: SharedStore?, record: @escaping (String, [String: String]) -> Void,
-         keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
-         pipService: PiPKeepAliveService? = nil) {
+         keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
         self.record = record
         self.keepAliveManager = keepAliveManager ?? KeepAliveManager(services: [(.vpn, keepAlive)])
         self.hostCoordinator = hostCoordinator
-        self.pipService = pipService
         self.store = storage?.store
         self.storageMode = storage?.mode ?? .appGroup
         self.fallbackReason = storage?.fallbackReason
@@ -78,6 +76,7 @@ final class AppController: ObservableObject {
             guard let self else { return }
             self.updateSwitchState()
             self.acceptState(self.keepAlive.state)
+            self.updateLocalExecutionPolicy()
             Task {
                 do { try await self.hostCoordinator?.reconcile(); self.scheduleQuery() }
                 catch { self.appError = describeError(error) }
@@ -196,6 +195,8 @@ final class AppController: ObservableObject {
 
     /// Foreground refresh reads shared files or provider replies, never UIScreen brightness.
     func setForeground(_ foreground: Bool) {
+        appIsForeground = foreground
+        updateLocalExecutionPolicy()
         refreshTask?.cancel()
         refreshTask = nil
         guard foreground else { return }
@@ -236,6 +237,16 @@ final class AppController: ObservableObject {
             keepAliveEnabled = vpn.isEnabled
             keepAliveTransitioning = vpn.isTransitioning
         }
+    }
+
+    /// Only a confirmed active PiP or Location service permits the App-hosted
+    /// listener to continue after the scene enters the background.
+    private func updateLocalExecutionPolicy() {
+        let isBackgroundKeepAliveActive = [KeepAliveMethod.pip, .location].contains { method in
+            guard let phase = keepAliveManager.state(for: method)?.phase else { return false }
+            return phase == .active || phase == .reasserting
+        }
+        hostCoordinator?.setAppExecutionAllowed(appIsForeground || isBackgroundKeepAliveActive)
     }
 
     func setKeepAliveEnabled(_ enabled: Bool, method: KeepAliveMethod = .vpn) {

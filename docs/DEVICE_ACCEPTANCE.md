@@ -137,7 +137,7 @@
 ## 多方案与底部 Tab 专项（build 15）
 
 1. 仪表、保活、信息使用系统底部 Tab Bar；各页独立导航。仪表当前状态显示监听轮询频率、S、采样亮度和当前 App 可见外观；切换监听与通知统计二级功能可返回并持续刷新。不要把通知目标当作真实外观。
-2. 不开 VPN，单独开启 PiP：来源区域可见时确认系统浮窗真正出现；退到桌面至少 30 分钟，在各时间点形成新的合格亮度趋势。返回核对 App 内监听来源与两路导出。系统关闭浮窗后开关应回到关闭。记录系统画中画设置及与其他媒体的冲突 / 中断。
+2. 不开 VPN，单独开启 PiP：前台打开开关，确认系统浮窗真正出现；退到桌面至少 30 分钟，在各时间点形成新的合格亮度趋势。返回核对 App 内监听来源与两路导出。系统关闭浮窗后开关应回到关闭。记录系统画中画设置及与其他媒体的冲突 / 中断。
 3. 不开 VPN，单独开启 Location：分别检查首次授权、拒绝、使用期间、升级始终授权和系统定位服务关闭；使用期间授权不能显示为始终授权。退到后台及锁屏，按实际通知与恢复评价，不依据空回调断言失败。
 4. 同时开启 VPN、PiP、Location；依次关闭一种，其他开关应继续反映实际运行，不能被全局 busy 锁住。PiP + Location 且没有 VPN 时，只应存在一个 App 内监听宿主。
 5. 由 App 开关 VPN，检查 App→扩展及扩展→App 的交接；在通知刚提交时也交接，核对已获取的成功历史、冷却与去重，无多实例重复通知。再从系统设置断开 VPN，分别记录历史是否取得与功能恢复。
@@ -146,3 +146,15 @@
 8. 信息页核对 App / 嵌入扩展版本均为本次 build。断开调试器测试后台与锁屏，不用前台编译或占位签名替代设备结果。
 
 新增方案及本轮 GUI 的设备专项：待测试。build 14 实机通过为用户反馈，未补录各分项详情。静音音频方案已取消。
+
+## 12. VideoCall PiP 修复专项（build 16）
+
+用户反馈 build 15 的 PiP 未正常开启、Location 保活未成功。本轮只修复 PiP，Location 暂不处理。用户确认改用 VideoCall 路线；内容为空白，来源和内容首选高度固定 0.1pt，系统外窗的实际尺寸另记录，不按首选高度推断。
+
+1. 关闭 VPN 与 Location，打开 Auto Dark Shift。前台启停 PiP 至少五次，包括快速取消启动后再开；只有浮窗出现、系统 didStart 且 active 为真时显示运行中。切换到仪表、信息及二级页面，来源不应消失；系统关闭后再次开启应成功。
+2. 退到后台至少 30 分钟，分别在 1、5、15、30 分钟形成新的合格亮度趋势，记录实际通知 / 外观结果。导出运行与 Boost 日志，核对 App 内实例、sample / heartbeatAt、时间覆盖、采样间断与错误。有限 background grace 过期后仍应有新的监听证据，不能用回前台时的 wake 冒充后台运行。
+3. 在后台用系统关闭浮窗。没有其他 App 保活时，后续本地监听应 sleep、清空心跳，停止增加采样；回前台才 wake。记录 pip_session_released：hasController=false、sourceInWindow=false、observerCount=0、stopTaskPending=false、backgroundGrace=false。PiP-only 不创建播放器或媒体音频租约，playerStatus=not_used。
+4. 先以系统其他 PiP、系统设置或不支持环境检查失败表现。8 秒未启动必须记录 pip_start_failed；核对明确错误、isPictureInPicturePossible / Active / Suspended、sourceBounds / sourceInWindow、audioCategory / Mode / Route / SessionAcknowledgement。未确认停止时必须保持停止中，不虚报运行或已停止。
+5. 关闭 Auto Dark Shift 后 PiP 继续，监听采样和新业务通知停止；重新打开后从新基准监听。若同时开启 VPN，关闭 PiP 不停止 VPN 扩展监听。此项沿用既有独立开关和宿主架构。
+
+当前结果：前台可启动性、后台 heartbeat / 监听持续性、系统关闭后的实际资源与采样停止均待本次真机测试。编译与纯逻辑测试不代替上述三项。Location 不在本轮验收修复范围。

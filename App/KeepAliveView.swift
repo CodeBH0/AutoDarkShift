@@ -12,14 +12,6 @@ struct KeepAliveView: View {
                 }
             }
 
-            if let pipService = controller.pipService {
-                Section("画中画来源") {
-                    PiPSourceView(service: pipService)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 36)
-                }
-            }
-
             if let notice = controller.storageNotice {
                 Section { Text(notice).font(.caption).foregroundStyle(.secondary) }
             }
