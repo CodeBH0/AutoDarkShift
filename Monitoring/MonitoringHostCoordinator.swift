@@ -9,6 +9,8 @@ import Foundation
     private let localStore: any MonitorStore
     private let makeRuntime: () throws -> any MonitoringRuntime
     private let exportLocal: (MonitorLogStream) throws -> String
+    private let record: (String, [String: String]) -> Void
+    private let context: () -> [String: String]
     private var runtime: (any MonitoringRuntime)?
     private var reconcileTask: Task<Void, Error>?
     private var vpnRequested = false
@@ -19,10 +21,13 @@ import Foundation
     init(vpn: any MonitoringClient, vpnState: @escaping () -> KeepAliveState,
          configurationStore: any MonitorStore, localStore: any MonitorStore,
          makeRuntime: @escaping () throws -> any MonitoringRuntime,
-         exportLocal: @escaping (MonitorLogStream) throws -> String) {
+         exportLocal: @escaping (MonitorLogStream) throws -> String,
+         record: @escaping (String, [String: String]) -> Void = { _, _ in },
+         context: @escaping () -> [String: String] = { [:] }) {
         self.vpn = vpn; self.vpnState = vpnState
         self.configurationStore = configurationStore; self.localStore = localStore
         self.makeRuntime = makeRuntime; self.exportLocal = exportLocal
+        self.record = record; self.context = context
     }
 
     var usesVPN: Bool {
@@ -30,15 +35,31 @@ import Foundation
     }
     var canMessage: Bool { usesVPN ? vpnState().phase.canMessage : runtime != nil }
     var hostName: String { usesVPN ? "VPN 扩展" : "App 内监听" }
+    /// In-process snapshot for diagnostics only; status queries remain read-only and
+    /// do not synthesize heartbeat or poll timestamps.
+    var localRuntimeSnapshot: RuntimeSnapshot? { runtime?.snapshot }
 
     /// Controls only the App-hosted runtime. A foreground App remains eligible to
     /// sample; in the background, the caller grants execution only for an active
     /// platform keep-alive method.
     func setAppExecutionAllowed(_ allowed: Bool) {
-        guard appExecutionAllowed != allowed else { return }
+        let changed = appExecutionAllowed != allowed
         appExecutionAllowed = allowed
+        let phase = runtime?.snapshot.phase
+        let needsWake = allowed && phase == .sleeping
+        let needsSleep = !allowed && phase == .running
+        guard changed || needsWake || needsSleep else { return }
+        log("app_execution_allowed", ["allowed": String(allowed), "changed": String(changed)])
         guard !usesVPN, let runtime else { return }
-        if allowed { runtime.wake() } else { runtime.sleep() }
+        // Reconcile desired policy with actual runtime phase even when the policy
+        // value repeats. A previous transition may have left the runtime sleeping.
+        if allowed, runtime.snapshot.phase == .sleeping {
+            runtime.wake()
+            log("monitor_wake", ["reason": "execution_allowed"])
+        } else if !allowed, runtime.snapshot.phase == .running {
+            runtime.sleep()
+            log("monitor_sleep", ["reason": "execution_disallowed"])
+        }
     }
 
     func prepareForVPNStart() async throws {
@@ -66,7 +87,14 @@ import Foundation
     }
 
     func reconcile() async throws {
-        if let reconcileTask { try await reconcileTask.value; return }
+        if let reconcileTask {
+            try await reconcileTask.value
+            // The shared task can suspend while a notification commits. Reapply
+            // the latest app execution policy after it finishes, not its captured
+            // value from before the suspension.
+            applyCurrentExecutionPolicy()
+            return
+        }
         let task = Task { @MainActor in
             repeat {
                 let remote = self.usesVPN
@@ -80,6 +108,7 @@ import Foundation
                         self.runtime = nil
                     }
                     self.publishHost("vpn")
+                    self.log("monitor_host_selected", ["host": "vpn"])
                 } else if self.runtime == nil {
                     let configuration = try self.configurationStore.configuration()
                     // SwitchMonitor.start() samples immediately when enabled. Seed a
@@ -116,6 +145,7 @@ import Foundation
                         throw error
                     }
                     self.publishHost("app")
+                    self.log("monitor_host_selected", ["host": "app"])
                 }
                 if remote == self.usesVPN { break }
             } while !Task.isCancelled
@@ -123,6 +153,7 @@ import Foundation
         reconcileTask = task
         defer { reconcileTask = nil }
         try await task.value
+        applyCurrentExecutionPolicy()
     }
 
     func queryStatus() async throws -> MonitorReply {
@@ -167,5 +198,41 @@ import Foundation
         guard host != value else { return }
         host = value
         onHostChange?()
+    }
+
+    private func applyCurrentExecutionPolicy() {
+        guard !usesVPN, let runtime else { return }
+        if appExecutionAllowed, runtime.snapshot.phase == .sleeping {
+            runtime.wake()
+            log("monitor_wake", ["reason": "reconcile_policy"])
+        } else if !appExecutionAllowed, runtime.snapshot.phase == .running {
+            runtime.sleep()
+            log("monitor_sleep", ["reason": "reconcile_policy"])
+        }
+    }
+
+    private func log(_ event: String, _ fields: [String: String] = [:]) {
+        var values = context()
+        values["listenerHost"] = usesVPN ? "vpn" : (runtime == nil ? host : "app")
+        values["appExecutionAllowed"] = String(appExecutionAllowed)
+        values["pipPhase"] = values["pipPhase"] ?? "unknown"
+        values["appForeground"] = values["appForeground"] ?? "unknown"
+        if let snapshot = runtime?.snapshot {
+            values["runtimePhase"] = snapshot.phase.rawValue
+            values["pollInterval"] = snapshot.activePollInterval.map { String($0) } ?? "none"
+            values["heartbeatAt"] = snapshot.heartbeatAt.map(Self.timestamp) ?? "none"
+            values["lastPollAt"] = snapshot.lastPollAt.map(Self.timestamp) ?? "none"
+        } else {
+            values["runtimePhase"] = "none"
+            values["pollInterval"] = "none"
+            values["heartbeatAt"] = "none"
+            values["lastPollAt"] = "none"
+        }
+        values.merge(fields) { _, latest in latest }
+        record(event, values)
+    }
+
+    private static func timestamp(_ date: Date) -> String {
+        ISO8601DateFormatter().string(from: date)
     }
 }

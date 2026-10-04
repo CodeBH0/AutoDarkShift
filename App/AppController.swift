@@ -2,6 +2,7 @@ import Foundation
 import Combine
 import UserNotifications
 import UIKit
+import SwiftUI
 
 @MainActor
 final class AppController: ObservableObject {
@@ -44,7 +45,9 @@ final class AppController: ObservableObject {
     private var diagnosticSyncedAt: [MonitorLogStream: Date] = [:]
     private var sessionGeneration = UUID()
     private var readback = MonitoringReadback()
-    private var appIsForeground = true
+    private var appIsForeground = UIApplication.shared.applicationState != .background
+    private var sceneState = "unknown"
+    private var lastExecutionPolicy: String?
     private var vpnOperation: Bool?
     private var queuedVPNIntent: Bool?
 
@@ -197,12 +200,19 @@ final class AppController: ObservableObject {
     }
 
     /// Foreground refresh reads shared files or provider replies, never UIScreen brightness.
-    func setForeground(_ foreground: Bool) {
-        appIsForeground = foreground
+    func setScenePhase(_ phase: ScenePhase) {
+        // Inactive remains foreground during Control Center, permissions and PiP animation.
+        // Only a background transition revokes foreground execution.
+        switch phase {
+        case .active: appIsForeground = true; sceneState = "active"
+        case .background: appIsForeground = false; sceneState = "background"
+        case .inactive: sceneState = "inactive"
+        @unknown default: sceneState = "unknown"
+        }
         updateLocalExecutionPolicy()
         refreshTask?.cancel()
         refreshTask = nil
-        guard foreground else { return }
+        guard phase == .active else { return }
         scheduleQuery()
         refreshTask = Task { [weak self] in
             var ticks = 0
@@ -249,7 +259,25 @@ final class AppController: ObservableObject {
             guard let phase = keepAliveManager.state(for: method)?.phase else { return false }
             return phase == .active || phase == .reasserting
         }
-        hostCoordinator?.setAppExecutionAllowed(appIsForeground || isBackgroundKeepAliveActive)
+        let allowed = appIsForeground || isBackgroundKeepAliveActive
+        let pipPhase = keepAliveManager.state(for: .pip)?.phase.rawValue ?? "unregistered"
+        let locationPhase = keepAliveManager.state(for: .location)?.phase.rawValue ?? "unregistered"
+        let policy = "\(sceneState):\(allowed):\(pipPhase):\(locationPhase):\(hostCoordinator?.hostName ?? "vpn")"
+        if policy != lastExecutionPolicy {
+            lastExecutionPolicy = policy
+            let runtime = hostCoordinator?.localRuntimeSnapshot
+            record("app_execution_allowed", [
+                "source": "app_controller", "sceneState": sceneState,
+                "appForeground": String(appIsForeground), "pipPhase": pipPhase,
+                "locationPhase": locationPhase, "allowed": String(allowed),
+                "listenerHost": hostCoordinator?.usesVPN == false ? "app" : "vpn",
+                "runtimePhase": runtime?.phase.rawValue ?? "none",
+                "pollInterval": runtime?.activePollInterval.map { String($0) } ?? "none",
+                "heartbeatAt": runtime?.heartbeatAt?.ISO8601Format() ?? "none",
+                "lastPollAt": runtime?.lastPollAt?.ISO8601Format() ?? "none"
+            ])
+        }
+        hostCoordinator?.setAppExecutionAllowed(allowed)
     }
 
     func setKeepAliveEnabled(_ enabled: Bool, method: KeepAliveMethod = .vpn) {

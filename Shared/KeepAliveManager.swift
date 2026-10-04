@@ -20,14 +20,30 @@ struct KeepAliveEntry: Identifiable, Equatable {
     private let controls: [KeepAliveMethod: KeepAliveSwitchControl]
     private var pendingStops: Set<KeepAliveMethod> = []
     private var failures: [KeepAliveMethod: String] = [:]
+    private var observedPhases: [KeepAliveMethod: KeepAlivePhase] = [:]
+    private let record: (String, [String: String]) -> Void
     var onChange: (() -> Void)?
 
-    init(services registrations: [(KeepAliveMethod, any KeepAliveService)]) {
+    init(services registrations: [(KeepAliveMethod, any KeepAliveService)],
+         record: @escaping (String, [String: String]) -> Void = { _, _ in }) {
         precondition(Set(registrations.map { $0.0 }).count == registrations.count)
+        self.record = record
         services = Dictionary(uniqueKeysWithValues: registrations)
         controls = Dictionary(uniqueKeysWithValues: registrations.map { ($0.0, KeepAliveSwitchControl(service: $0.1)) })
-        for (_, service) in registrations {
-            service.onStateChange = { [weak self] _ in self?.onChange?() }
+        for (method, service) in registrations {
+            observedPhases[method] = service.state.phase
+            record("keepalive_initial_state", ["method": method.rawValue, "phase": service.state.phase.rawValue])
+            service.onStateChange = { [weak self] state in
+                guard let self else { return }
+                let previous = self.observedPhases[method]
+                self.observedPhases[method] = state.phase
+                if method == .pip && state.phase == .active && previous != .active {
+                    self.record("keepalive_pip_active", ["initialPhase": previous?.rawValue ?? "unknown",
+                                                          "phase": state.phase.rawValue,
+                                                          "description": state.description])
+                }
+                self.onChange?()
+            }
         }
         for control in controls.values { control.onChange = { [weak self] in self?.onChange?() } }
     }

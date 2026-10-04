@@ -7,6 +7,7 @@ final class SwitchMonitor: MonitoringRuntime {
     private let sampler: any BrightnessSampling
     private let notifications: any ModeNotificationSubmitting
     private let diagnostic: (String) -> Void
+    private let diagnosticContext: () -> [String: String]
     private let clock: () -> Date
     private let uptime: () -> TimeInterval
     private var machine: BrightnessTrendStateMachine
@@ -26,13 +27,15 @@ final class SwitchMonitor: MonitoringRuntime {
     init(store: any MonitorStore, sampler: any BrightnessSampling,
          notifications: any ModeNotificationSubmitting, clock: @escaping () -> Date = Date.init,
          uptime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
-         diagnostic: @escaping (String) -> Void = { _ in }) throws {
+         diagnostic: @escaping (String) -> Void = { _ in },
+         diagnosticContext: @escaping () -> [String: String] = { [:] }) throws {
         self.store = store
         self.sampler = sampler
         self.notifications = notifications
         self.clock = clock
         self.uptime = uptime
         self.diagnostic = diagnostic
+        self.diagnosticContext = diagnosticContext
         let configuration = try store.configuration()
         let previous = try store.snapshot()
         let history = try store.history()
@@ -114,7 +117,7 @@ final class SwitchMonitor: MonitoringRuntime {
         guard snapshot.phase == .sleeping else { return }
         machine.resetObservations()
         snapshot.phase = .running
-        record("monitor_wake")
+        record("monitor_wake", samplingContext())
         if snapshot.appliedConfiguration.isEnabled {
             installSampling()
             sampler.sampleNow(.wake)
@@ -191,6 +194,7 @@ final class SwitchMonitor: MonitoringRuntime {
         lastSnapshotUptime = nil
         let generation = UUID()
         observationGeneration = generation
+        record("monitor_sampling_installed", samplingContext())
         sampler.start(interval: interval) { [weak self] reading in
             guard let self, self.observationGeneration == generation,
                   self.snapshot.phase == .running else { return }
@@ -204,6 +208,16 @@ final class SwitchMonitor: MonitoringRuntime {
         observationGeneration = UUID()
         sampler.stop()
         snapshot.activePollInterval = nil
+        record("monitor_sampling_removed", samplingContext())
+    }
+
+    private func samplingContext() -> [String: String] {
+        ["runtimePhase": snapshot.phase.rawValue,
+         "enabled": String(snapshot.appliedConfiguration.isEnabled),
+         "pollInterval": snapshot.activePollInterval.map { String($0) } ?? "none",
+         "heartbeatAt": snapshot.heartbeatAt?.ISO8601Format() ?? "none",
+         "lastPollAt": snapshot.lastPollAt?.ISO8601Format() ?? "none",
+         "observationGeneration": observationGeneration.uuidString]
     }
 
     private func sample(_ reading: BrightnessReading) {
@@ -269,7 +283,19 @@ final class SwitchMonitor: MonitoringRuntime {
                 "frequency": String(1 / machine.pollInterval)
             ]) { _, new in new })
         }
-        if publish { record("trend_score", trendFields()) }
+        if publish {
+            var fields = trendFields()
+            let scoredTarget = machine.trend.flatMap { BrightnessTrendModel.target(for: $0.score) }
+            fields["candidateCreated"] = String(candidate != nil)
+            fields["scoredTarget"] = scoredTarget?.rawValue ?? "none"
+            fields["desiredTarget"] = machine.desiredTarget?.rawValue ?? "none"
+            fields["pendingTarget"] = machine.pendingTarget?.rawValue ?? "none"
+            fields["inFlight"] = machine.inFlight?.id.uuidString ?? "none"
+            fields["lastSubmittedTarget"] = machine.history?.target.rawValue ?? "none"
+            fields["lastSubmittedAt"] = machine.history?.submittedAt.ISO8601Format() ?? "none"
+            fields["cooldown"] = String(machine.configuration.cooldown)
+            record("trend_score", fields)
+        }
         if previousTarget != machine.pendingTarget {
             record("candidate_changed", ["target": machine.pendingTarget?.rawValue ?? "none",
                                           "source": source.rawValue,
@@ -289,8 +315,14 @@ final class SwitchMonitor: MonitoringRuntime {
         snapshot.submission = SubmissionSnapshot(identifier: identifier, target: candidate.target,
             brightness: candidate.brightness, source: source, timestamp: clock(), result: .submitting)
         persist()
+        record("notification_authorization_requested", ["identifier": identifier, "target": candidate.target.rawValue,
+            "source": source.rawValue, "sampledAt": candidate.sampledAt.ISO8601Format()])
         notifications.authorization { [weak self] authorized, authorizationDescription in
             guard let self else { return }
+            self.record("notification_authorization_result", ["identifier": identifier,
+                "authorized": String(authorized), "authorizationStatus": authorizationDescription,
+                "runtimePhase": self.snapshot.phase.rawValue,
+                "generationMatches": String(self.observationGeneration == samplingGeneration)])
             guard self.machine.inFlight?.id == candidate.id,
                   self.notificationStartedID != candidate.id else { return }
             guard self.snapshot.phase == .running,
@@ -382,7 +414,11 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func record(_ event: String, _ fields: [String: String] = [:]) {
-        do { try store.append(LogRecord(instanceID: snapshot.instanceID, event: event, fields: fields)) }
+        // Context is attached only at lifecycle/notification boundaries. Routine reads
+        // and scores remain compact and are linked by their actual sample sequence.
+        let needsContext = event.hasPrefix("monitor_") || event.hasPrefix("notification_")
+        let values = needsContext ? diagnosticContext().merging(fields) { _, new in new } : fields
+        do { try store.append(LogRecord(instanceID: snapshot.instanceID, event: event, fields: values)) }
         catch {
             snapshot.lastError = "日志写入失败：\(describeError(error))"
             diagnostic(snapshot.lastError ?? "log failure")

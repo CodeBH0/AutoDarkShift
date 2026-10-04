@@ -25,6 +25,11 @@ flowchart TD
     Provider --> Remote[扩展内 SwitchMonitor]
     Local --> Core[同一模型 / 采样与通知接口]
     Remote --> Core
+    Local --> Sampler[ScreenBrightnessSampler / MainActor 读取]
+    Remote --> Sampler
+    Sampler --> Scheduler[PollingScheduler / 等待与读取分离]
+    Scheduler --> Dispatch[App: DispatchSourceTimer]
+    Scheduler --> RunLoop[VPN: MainRunLoop Timer]
 ```
 
 | 层 | 文件 / 接口 | 职责 |
@@ -37,6 +42,7 @@ flowchart TD
 | 监听宿主协调 | `Monitoring/MonitoringHostCoordinator.swift` | App 与 VPN 的监听选择、启停交接、已获取成功历史合并；不改变三种保活的独立开关 |
 | 监听业务 | `Monitoring/SwitchMonitor.swift` | 原有模型 v2、采样、冷却、去重与双日志；新增独立 isEnabled 配置 |
 | 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | 真实 UIKit 读数与通知提交，两种监听宿主复用 |
+| 轮询调度 | `Shared/PollingScheduler.swift`、`MainRunLoopPollingScheduler` | App 用独立 Dispatch 队列等待、MainActor 回调；VPN 保留原主 RunLoop Timer；停止与变频作废旧 tick |
 | 存储 / 控制 | `MonitorStore`、`MonitoringClient`、`MonitorControlEndpoint` | 配置确认、身份匹配、快照、历史与两路诊断；保留通信版本 3 |
 
 VPN 连接、重连及断开过程中使用扩展宿主；其他时候使用 App 内宿主。由 App 发起 VPN 启动前，先停止本地采样，并等待已交给系统的通知完成及历史保存，然后才请求系统连接。由 App 关闭 VPN 时，先发送 `prepareHostHandoff` 停止扩展监听，等待 stopped 回复并合并最后历史，再同步日志及断开；连接实际停止后启动 App 内监听。两个方向都保留已取得的较新成功历史，避免用旧快照回退去重。系统从外部断开、强杀或读回不可用时，只能合并已取得的记录；未知结果保留在诊断中，不能宣称未读到的最终历史已同步。
@@ -46,6 +52,16 @@ VPN 连接、重连及断开过程中使用扩展宿主；其他时候使用 App
 Auto Dark Shift 的 `isEnabled` 与保活开关独立。关闭后取消采样与未提交候选、清除心跳，保留保活、成功历史和已有计数；已经交给系统的 add 仍记录实际完成结果。重新开启从新的观测基准开始。旧配置没有 isEnabled 字段时默认开启；保存开关发生在 VPN 启动中时，首次可读取后对比持久 revision 并补应用最新配置。
 
 当前状态中的频率来自监听快照 `activePollInterval`，亮度来自采样快照，S 来自模型输出。外观来自 App 当前可见的系统 ColorScheme，不将 desiredTarget 或提交历史冒充系统其他 App 的实际外观。`extensionStarts` 保留旧字段名，表示监听实例初始化次数。
+
+## App 后台调度与诊断（build 17）
+
+`didStart` 的实际 active 经 KeepAliveManager 回调到 AppController，再由宿主协调器按真实 runtime phase 唤醒同一个 SwitchMonitor。重复许可也能修正仍 sleeping 的实例；在途宿主交接完成后重新应用当前许可。`.inactive` 保留此前前后台许可，只有 `.background` 撤销前台许可，避免控制中心或 PiP 启动动画造成不必要的观测重置；UI 刷新在 active 场景恢复。
+
+采样器只管理亮度观察者与 MainActor 读取，独立 PollingScheduler 管理等待。App 显式注入 DispatchPollingScheduler，VPN 使用默认 MainRunLoopPollingScheduler。Dispatch 队列不访问 UIKit，只投递至多一个待处理的 MainActor 读取；停止、变频和重新安装用 generation 拒绝旧 tick，不补发错过的读数。释放时取消 source / Timer 与亮度观察者。该调度器复用于任意获得 App 执行许可的保活方案，本轮不修改 Location 或增加音频方案。
+
+最新 build 16 日志显示 PiP 实际 active 后仍有 poll，最后心跳也更新；不能据此认定旧 Timer 已停止。Dispatch 调整用于去除轮询等待对主 RunLoop 的依赖，并分开观测 worker tick 与 MainActor 读数。后台执行仍取决于系统调度；该 timer 本身不提供保活资格。底层模型与 Boost 算法不变。
+
+七个链路事件与通知诊断的判读顺序见 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 第 13 节。心跳只由 SwitchMonitor 接受的真实读取更新；状态查询、调度 tick 和页面刷新均不产生心跳。
 
 ## 存储与跨进程控制
 

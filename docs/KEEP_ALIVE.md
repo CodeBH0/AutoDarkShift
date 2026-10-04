@@ -32,6 +32,12 @@ AppController 复用既有配置、权限、统计、状态读取和日志服务
 
 App 内监听使用私有 LocalMonitoring 目录，与 ProviderRuntime / App Group 的日志独立。运行、Boost 分别导出，导出汇集对应的 App 内记录与已有 Provider 记录，保留 scope 与实例 ID；新宿主不会覆盖旧 Provider 缓存。
 
+## 后台监听诊断（build 17）
+
+PiP 主体、来源宿主、44pt 开启与 0.1pt 缩小流程沿用 build 16。本轮修复 App 执行许可与 runtime phase 的协调，并把 App 内轮询等待改为 DispatchSourceTimer；UIKit 亮度读取仍在 MainActor，VPN 调度不变。`.inactive` 不再直接触发监听睡眠，实际后台且没有确认保活时仍 sleep。
+
+调度和读数日志按秒汇总：worker 的 poll_tick 与 MainActor 的 brightness_sample 独立，累计 count 含义不同，实际读取数仍以 runtime counters 为准。高频变档时会即时记录 scheduler stop/start，monitor_sampling_installed 的 observationGeneration 用于核对生命周期；变频只替换调度代次，不替换观察者。授权请求、授权结果、系统提交与完成均记录实际回调。详见设备验收第 13 节。
+
 ## 参考来源
 
 - PiP 生命周期与公开视频通话内容源参考 [Yoroin/GlobalRefresh-PiP](https://github.com/Yoroin/GlobalRefresh-PiP)，其 NOTICE 同时注明 [CaiWanFeng/PiP](https://github.com/CaiWanFeng/PiP)。当前适配器在本工程中独立实现，没有引入上游后台定时、播放器或高刷逻辑。

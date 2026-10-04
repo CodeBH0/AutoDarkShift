@@ -1,4 +1,24 @@
-# 验证记录（当前 1.0.1 / build 16）
+# 验证记录（当前 1.0.1 / build 17）
+
+## 2026-10-04 PiP 后台监听协调与调度诊断（build 17）
+
+用户确认 build 16 已能实际开启 PiP，当前异常为进入后台、调亮度后没有通知。本轮读取新设备运行日志：三次 didStart 均 isPictureInPictureActive=true，Manager 所用平台状态已为 active；后台后仍有 poll，最终快照 phase=running、heartbeatAt=lastPollAt=01:06:17.248 UTC。不能把日志缺少链路细节当作轮询停止的证据，亦未证实旧 RunLoop Timer 是根因。物理调亮度时间与真实读数新鲜度仍待对照。
+
+本轮保持 PiPKeepAliveService / PiPSourceHost、44pt 开启与一键 0.1pt 流程、模型 v2、阈值与 Boost 公式原样。最小改动为：inactive 保留此前场景许可；KeepAliveManager 记录真实 PiP active 传播；宿主重复许可按实际 phase 修复，异步交接后应用最新许可；App 组合显式注入 DispatchPollingScheduler，独立队列等待、MainActor 读屏，最多一个待处理读取。VPN 仍用默认主 RunLoop Timer，Location / 音频本轮不处理。取消 / 变频 / 释放作废旧 tick、移除观察者，不补造漏失样本。
+
+新增诊断包括规定的七个节点、实际安装 / 移除与 generation，以及模型候选事实和通知授权请求 / 回调。调度 tick 与亮度读取最多每秒各一条，计数包含真实回调；模型判断不新增阈值、冷却或去重分支。日志导出入口及预算沿用原实现。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程与空白检查 | 通过：198 个对象、54 个文件；生成器与工程一致，git diff --check 通过 |
+| 干净副本 | 通过：不包含 AGENTS.md / DEVELOPMENT.md、设备日志、个人签名和构建产物；验证及重新生成结果相同 |
+| core checks | 通过：61 项生产场景，含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 通过：56 个方法、0 失败；34 项模型、16 项保活 / 宿主 / 通知链路、5 项 Dispatch 调度与释放、1 项包装运行时回归 |
+| iPhone Release / IPA | 通过：现有 iPhoneOS 18.2 SDK、arm64、最低 iOS 17；App / PacketTunnel 均为 1.0.1 / build 17；未安装平台、未生成 archive |
+| 包核对 / 旧包保留 | 通过：ZIP、双组件占位签名、标识符、权限与框架边界；原有 12 份 IPA 校验不变；新包 866746 字节，SHA-256 `960c11c753919fe78b24f2b0edc45c350bdd1a3adac91a0d91bfd82089275b0a` |
+| 后台通知与长时间调度 | 未执行新包真机验收；按 DEVICE_ACCEPTANCE 第 13 节对照物理调亮度时间与链路日志 |
+
+最终检查与过程文件留在忽略的 build/validation-background-polling；打包使用公共脚本正常递增，不覆盖 build 16。构建无需安装 iOS 平台或模拟器，IPA 含 App / PacketTunnel 占位签名，须由用户重签并实机验收。
 
 ## 2026-10-04 来源零高度修复与一键 0.1pt（覆盖 build 16）
 

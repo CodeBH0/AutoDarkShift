@@ -158,3 +158,30 @@
 5. 关闭 Auto Dark Shift 后 PiP 继续，监听采样和新业务通知停止；重新打开后从新基准监听。若同时开启 VPN，关闭 PiP 不停止 VPN 扩展监听。此项沿用既有独立开关和宿主架构。
 
 当前结果：前台可启动性、后台 heartbeat / 监听持续性、系统关闭后的实际资源与采样停止均待本次真机测试。编译与纯逻辑测试不代替上述三项。Location 不在本轮验收修复范围。
+
+## 13. PiP 后台采样与通知链路（build 17）
+
+用户确认 build 16 已能开启系统 PiP，但后台调亮度时未见通知。最新运行日志中三次 pip_did_start 均 actual active，进入后台后仍有 poll；01:06:17.248 UTC 的最后快照为 running，heartbeatAt 与 lastPollAt 相同。日志没有物理调亮度的操作时间，不能证明读数及时跟随，也不能将 Timer 停转视为已确认根因。以下测试针对新调度与诊断，不记为已通过。
+
+1. 关闭 VPN / Location，打开 Auto Dark Shift 与通知权限。在前台稳定中间亮度后，开启 PiP 并按原流程缩到 0.1pt；记录进入后台时间。后台在 1、5、15、30 分钟大幅降低 / 提高亮度，并记下每次操作时间与是否出现 Mode 通知。变亮 / 变暗应形成新的合格趋势，恒定亮度或同目标去重不保证产生通知。
+2. 导出运行日志，按实际时间、实例及 sample sequence 对齐下表。AppDiagnostics 的调度 / 平台事件与 LocalMonitoring 的模型 / 通知事件在同一路导出中汇合。返回后当前状态页面应立即读到真实监听快照，随后继续刷新频率、S、亮度与心跳；页面刷新不参与后台采样。
+3. 在 PiP starting 时迅速进入后台，再等实际 didStart，检查 sleep → wake → monitor_sampling_installed → poll_scheduler_started → brightness_sample；不能只看已创建控制器。回前台、控制中心和 Tab 切换不应无故重复重装采样。
+4. 在后台关闭 PiP，且无其他 App 保活时检查 monitor_sleep / poll_scheduler_stopped：后续实际读取和心跳不再增长；有限迟到 worker 事件不算新的读取。回前台才恢复。重新开 PiP 验证新 generation，不接收已作废代次的读数。
+5. 开启 VPN 后重复关闭 PiP：扩展监听和其调度应保持，App 本地不会重复采样；将取得的成功历史与通知计数对照，防止宿主交接重复请求。
+
+| 事件 | 实际证据 / 可定位断点 |
+| --- | --- |
+| pip_did_start | 系统 didStart，actual active、App 状态、来源与音频状态；PiP 主体本轮未重写 |
+| keepalive_pip_active | Manager 收到平台 active；不依据创建控制器虚报运行 |
+| app_execution_allowed | AppController / 宿主记录许可、场景、PiP phase、宿主、runtime phase、间隔、心跳与 lastPoll |
+| monitor_wake / monitor_sampling_installed | 实际唤醒、安装采样、observationGeneration；许可重复时不应重复安装 |
+| poll_scheduler_started | 调度后端、间隔、generation 与当前上下文 |
+| poll_tick | Dispatch worker 实际触发；count 为 worker 触发数，readPending 表示已有 MainActor 读取待处理；不读取 UIKit、不生成心跳，按秒节流 |
+| brightness_sample | MainActor 实际读数，source、时间、累计读取数，以及同步送入监听后的真实心跳 / lastPoll；按秒节流 |
+| sample / trend_score | 监听接受与评分，sequence 关联；评分同时记录 scoredTarget、candidateCreated、pendingTarget、inFlight、成功历史及冷却配置，不新增阈值判断 |
+| notification_authorization_requested / result | 实际授权查询及返回；无 result 时定位等待回调，blocked 在 notification_result 给出权限原因 |
+| notification_submit / result | 实际调用通知中心及 success / failed / blocked / cancelled；success 代表系统接受，展示和外部自动化分别记录 |
+
+若 worker tick 增长而 brightness_sample 停止，检查 MainActor 交付；若读数持续却不随已记录的物理亮度变化，记录 UIKit 读取可用性；若读取变化但没有候选，依据实际 S、去重历史、pending / inFlight 和冷却判读。不要把这些情况混称为 PiP 启动失败或 Timer 停止。运行日志各层时间覆盖必须足够，高频的日志条数不是实际轮询频率。
+
+本轮设备结果：待测试。实际后台通知、长时间调度、读数新鲜度及关闭后的系统行为均需真机确认。Location / 静音音频本轮不处理。

@@ -4,6 +4,31 @@ import XCTest
 #endif
 
 final class KeepAliveAndHostTests: XCTestCase {
+    @MainActor func testBackgroundReadReachesModelAndActualNotificationDecisionLogs() throws {
+        for authorized in [true, false] {
+            let local = HostStore()
+            let sampler = HostBrightnessSampler()
+            let notifications = HostNoopNotifications()
+            notifications.authorized = authorized
+            let monitor = try SwitchMonitor(store: local, sampler: sampler, notifications: notifications,
+                diagnosticContext: { ["applicationState": "background", "pipPhase": "active", "listenerHost": "app"] })
+            try monitor.start()
+            sampler.receive?(BrightnessReading(value: 0.02, source: .poll,
+                timestamp: Date(), uptime: 11))
+            XCTAssertEqual(monitor.snapshot.counters.polls, 1)
+            XCTAssertNotNil(monitor.snapshot.heartbeatAt)
+            XCTAssertEqual(monitor.snapshot.lastPollAt, monitor.snapshot.heartbeatAt)
+            let score = try XCTUnwrap(local.records.last { $0.event == "trend_score" })
+            XCTAssertEqual(score.fields["candidateCreated"], "true")
+            XCTAssertEqual(score.fields["scoredTarget"], "dark")
+            XCTAssertTrue(local.records.contains { $0.event == "notification_authorization_requested" })
+            let result = try XCTUnwrap(local.records.last { $0.event == "notification_result" })
+            XCTAssertEqual(result.fields["applicationState"], "background")
+            XCTAssertEqual(result.fields["result"], authorized ? "success" : "blocked")
+            XCTAssertEqual(monitor.snapshot.counters.notificationAttempts, authorized ? 1 : 0)
+        }
+    }
+
     @MainActor func testMethodsRunTogetherAndStopIndependently() async throws {
         let vpn = TestKeepAlive(), pip = TestKeepAlive(), location = TestKeepAlive()
         let manager = KeepAliveManager(services: [(.vpn, vpn), (.pip, pip), (.location, location)])
@@ -24,6 +49,17 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertEqual(vpn.state.phase, .active)
         XCTAssertEqual(vpn.stops, 0)
         XCTAssertNotNil(manager.entries.first { $0.id == .pip }?.state.lastError)
+    }
+
+    @MainActor func testManagerRecordsConfirmedPipActiveTransition() async throws {
+        let pip = TestKeepAlive()
+        var events: [(String, [String: String])] = []
+        let manager = KeepAliveManager(services: [(.pip, pip)]) { event, fields in
+            events.append((event, fields))
+        }
+        XCTAssertEqual(events.first?.0, "keepalive_initial_state")
+        try await manager.setEnabled(true, method: .pip)
+        XCTAssertTrue(events.contains { $0.0 == "keepalive_pip_active" && $0.1["phase"] == "active" })
     }
 
     @MainActor func testOffDuringAsynchronousStartCannotLeaveServiceRunning() async throws {
@@ -127,6 +163,65 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertEqual(runtime.wakeCalls, 1)
     }
 
+    @MainActor func testPiPStartingBackgroundWakeReinstallsProductionSwitchMonitorSampling() async throws {
+        let configuration = HostStore()
+        let local = HostStore()
+        let vpn = HostVPN()
+        let sampler = HostBrightnessSampler()
+        var monitor: SwitchMonitor?
+        let coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState(phase: .stopped) },
+            configurationStore: configuration, localStore: local, makeRuntime: {
+                let current = try SwitchMonitor(store: local, sampler: sampler,
+                    notifications: HostNoopNotifications())
+                monitor = current
+                return current
+            }, exportLocal: { _ in "" })
+        try await coordinator.reconcile()
+        let runtime = try XCTUnwrap(monitor)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(sampler.startCalls, 1)
+        let preSleepReceive = try XCTUnwrap(sampler.receive)
+
+        let pip = TestKeepAlive()
+        let manager = KeepAliveManager(services: [(.pip, pip)])
+        manager.onChange = {
+            let confirmedActive = pip.state.phase == .active || pip.state.phase == .reasserting
+            coordinator.setAppExecutionAllowed(confirmedActive)
+        }
+        coordinator.setAppExecutionAllowed(false)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertNil(runtime.snapshot.heartbeatAt)
+
+        pip.setPhase(.starting)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        pip.setPhase(.active)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(sampler.startCalls, 2)
+        XCTAssertEqual(runtime.snapshot.activePollInterval, BrightnessTrendModel.normalPollInterval)
+
+        // Late callback from the pre-sleep observer belongs to an invalid generation.
+        let sampleCountAfterWake = runtime.snapshot.counters.samples
+        preSleepReceive(BrightnessReading(value: 0.7, source: .poll, timestamp: Date(), uptime: 20))
+        XCTAssertEqual(runtime.snapshot.counters.samples, sampleCountAfterWake)
+
+        // Repeating the same active permission aligns state without replacing the sampler.
+        coordinator.setAppExecutionAllowed(true)
+        XCTAssertEqual(sampler.startCalls, 2)
+        let heartbeat = Date(timeIntervalSince1970: 1_800_000_000)
+        sampler.receive?(BrightnessReading(value: 0.62, source: .poll, timestamp: heartbeat, uptime: 30))
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.snapshot.heartbeatAt, heartbeat)
+        XCTAssertEqual(runtime.snapshot.lastPollAt, heartbeat)
+        XCTAssertEqual(runtime.snapshot.counters.polls, 1)
+
+        // If another lifecycle edge left a sleeping runtime behind while policy
+        // stayed allowed, the repeated grant repairs that phase mismatch.
+        runtime.sleep()
+        coordinator.setAppExecutionAllowed(true)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(sampler.startCalls, 3)
+    }
+
     @MainActor func testBackgroundRuntimeCreatedWithoutKeepAliveDoesNotSample() async throws {
         let fixture = HostFixture()
         fixture.coordinator.setAppExecutionAllowed(false)
@@ -208,19 +303,21 @@ final class KeepAliveAndHostTests: XCTestCase {
         state.phase = .active; onStateChange?(state)
     }
     func stop() { stops += 1; state.phase = .stopped; onStateChange?(state) }
+    func setPhase(_ phase: KeepAlivePhase) { state.phase = phase; onStateChange?(state) }
 }
 
 private final class HostStore: MonitorStore {
     var config = MonitorConfiguration()
     var savedHistory: SubmissionHistory?
     var savedSnapshot: RuntimeSnapshot?
+    var records: [LogRecord] = []
     func configuration() throws -> MonitorConfiguration { config }
     func saveConfiguration(_ value: MonitorConfiguration) throws { config = value }
     func snapshot() throws -> RuntimeSnapshot? { savedSnapshot }
     func saveSnapshot(_ value: RuntimeSnapshot) throws { savedSnapshot = value }
     func history() throws -> SubmissionHistory? { savedHistory }
     func saveHistory(_ value: SubmissionHistory) throws { savedHistory = value }
-    func append(_ record: LogRecord) throws {}
+    func append(_ record: LogRecord) throws { records.append(record) }
     func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws {}
     func recoverBoostTraces(instanceID: String, at: Date) throws {}
 }
@@ -267,6 +364,30 @@ private final class HostStore: MonitorStore {
                      snapshot: snapshot)
     }
     func flushDiagnostics() {}
+}
+
+@MainActor private final class HostBrightnessSampler: BrightnessSampling {
+    private(set) var receive: ((BrightnessReading) -> Void)?
+    private(set) var startCalls = 0
+    private(set) var stopCalls = 0
+    private(set) var interval: TimeInterval?
+    func start(interval: TimeInterval, receive: @escaping (BrightnessReading) -> Void) {
+        startCalls += 1
+        self.interval = interval
+        self.receive = receive
+    }
+    func updateInterval(_ interval: TimeInterval) { self.interval = interval }
+    func sampleNow(_ source: SampleSource) {
+        receive?(BrightnessReading(value: 0.5, source: source, timestamp: Date(), uptime: 10))
+    }
+    func stop() { stopCalls += 1; receive = nil; interval = nil }
+}
+
+@MainActor private final class HostNoopNotifications: ModeNotificationSubmitting {
+    var authorized = true
+    func authorization(_ completion: @escaping (Bool, String) -> Void) { completion(authorized, "test") }
+    func submit(_ candidate: NotificationCandidate, source: SampleSource,
+                completion: @escaping (Error?) -> Void) { completion(nil) }
 }
 
 @MainActor private final class HostVPN: MonitoringClient {

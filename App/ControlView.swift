@@ -31,8 +31,8 @@ struct ControlView: View {
                     .allowsHitTesting(false)
             }
         }
-        .onAppear { controller.setForeground(scenePhase == .active) }
-        .onChange(of: scenePhase) { _, phase in controller.setForeground(phase == .active) }
+        .onAppear { controller.setScenePhase(scenePhase) }
+        .onChange(of: scenePhase) { _, phase in controller.setScenePhase(phase) }
         .onChange(of: controller.exportURLs) { _, urls in showingExport = !urls.isEmpty }
         .sheet(isPresented: $showingExport, onDismiss: { controller.exportURLs = [] }) {
             if !controller.exportURLs.isEmpty { ShareSheet(urls: controller.exportURLs) }

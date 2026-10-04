@@ -37,7 +37,7 @@ def file(path, kind):
                path=quote(path), sourceTree="SOURCE_ROOT")
 
 
-shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/SharedStore.swift",
+shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/SharedStore.swift", "Shared/PollingScheduler.swift",
           "Shared/ServiceContracts.swift", "Shared/MonitorMessageChannel.swift", "Shared/RuntimeStorage.swift",
           "Shared/KeepAliveContracts.swift", "Shared/KeepAliveManager.swift", "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
 monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift", "Monitoring/MonitoringHostCoordinator.swift"]
