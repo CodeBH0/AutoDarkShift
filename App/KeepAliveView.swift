@@ -65,6 +65,10 @@ private struct KeepAliveEntryRow: View {
             if let error = entry.state.lastError {
                 Text(error).font(.caption).foregroundStyle(Color.red).textSelection(.enabled)
             }
+            if entry.id == .location {
+                Text("请在前台开启并允许定位，再离开 App。连续定位会增加耗电；位置不保存或上传。")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }

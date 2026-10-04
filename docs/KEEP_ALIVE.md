@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | VPN | 首次准备系统配置，状态跟随 NEVPNConnection；维持既有最小隧道与网络策略 | PacketTunnel 进程 |
 | PiP | 在前台点击“开启悬浮窗”，确认实际浮窗后拖到侧边，再点“一键0.1pt”；系统 didStart 且 active 为真后才显示运行中 | App 进程 |
-| Location | 请求使用期间定位，再请求始终定位；三公里精度、最大距离过滤、不自动暂停；拒绝与更新中断明确呈现 | App 进程 |
+| Location | 前台开启连续定位；Best 精度、无距离过滤、不自动暂停，显示后台定位指示；权限变化与暂停后恢复明确呈现 | App 进程 |
 
 PiP 采用参考项目默认 VideoCall 的 PiP-only 分支：AVPictureInPictureVideoCallViewController + ContentSource，没有 AVPlayer / AVPlayerLayer、占位视频、静音 PCM 或动态显示。保留 GlobalRefresh 的两阶段流程：普通开启先恢复 300 × 44pt 的来源和 preferredContentSize，系统确认运行后才允许“一键0.1pt”将来源约束与 preferredContentSize 调为 300 × 0.1pt。停止再开总是恢复 44pt，不在启动前缩小；没有自定义高度菜单。系统实际浮窗尺寸仍由 iOS 管理，侧边吸附后缩小的实际效果需真机记录。
 
@@ -18,9 +18,17 @@ PiPSourceHost 通过透明、不拦截触摸的 UIKit 宿主覆盖在整个 TabV
 
 AVAudioSession 跟随参考项目 PiP-only 分支：释放媒体会话并设置 soloAmbient / default，不启动静音播放或主动保持 playback 会话。音频中断、路线变化和配置 / 释放错误记录实际结果。没有公开的音频 active 读回接口，日志中的 audioSessionAcknowledgement 表示调用结果。失败日志包含系统错误、possible / active / suspended、来源与内容尺寸、播放器 not_used、音频类别 / 模式 / 路线及过渡任务状态。
 
-进入后台时只申请一次有限的过渡宽限任务，过期、回前台或停止时结束，不续租、不产生持续空转计时器。系统关闭、主动关闭和启动失败清理控制器、内容、来源、KVO / 通知观察者、停止确认任务与过渡任务。启动取消但系统不发 didStop 时，短暂等待后仅对已实际 inactive 的控制器完成清理；系统仍 active 时保持停止中并记录未确认，避免虚报已停止。主 App 的 UIBackgroundModes 保留 audio / location；本轮不修改 Location。后台持续性仍需真机确认。
+进入后台时只申请一次有限的过渡宽限任务，过期、回前台或停止时结束，不续租、不产生持续空转计时器。系统关闭、主动关闭和启动失败清理控制器、内容、来源、KVO / 通知观察者、停止确认任务与过渡任务。启动取消但系统不发 didStop 时，短暂等待后仅对已实际 inactive 的控制器完成清理；系统仍 active 时保持停止中并记录未确认，避免虚报已停止。主 App 的 UIBackgroundModes 保留 audio / location；此段为 PiP 生命周期说明。后台持续性仍需真机确认。
 
-Location 丢弃全部坐标，不保存或上传位置。使用期间授权会显示后台持续性有限，不显示为始终授权；权限请求不会锁住其他保活开关。系统定位服务关闭、拒绝、暂停和恢复分别记录，不能从“已请求位置更新”推断任意后台时段都持续调度。
+## Location 连续后台会话（1.0.2）
+
+Location 从原先三公里精度 / 最大距离过滤改为 `kCLLocationAccuracyBest`、`kCLDistanceFilterNone` 和 `.fitness`，保留 `allowsBackgroundLocationUpdates=true`、`pausesLocationUpdatesAutomatically=false`，并显示系统后台定位指示。持续定位会增加耗电。全部坐标在 delegate 入口丢弃，不保存、上传或传给亮度模型。
+
+请在前台开启并允许定位，再进入后台。使用期间授权可以延续前台已启动的连续定位；它不等同于始终授权，暂停或停止后不能从后台重新启动。授权升级只在 active 前台请求，不阻塞定位或其他保活。Allow Once 失效时取消定位更新并等待回前台授权；拒绝 / 系统关闭定位时结束本次会话，用户需要重新开启。暂停后若是始终授权或已回前台，则重新调用 startUpdatingLocation；室内暂时无定位等错误保留会话，收到真实回调后清除中断状态。
+
+每次开启创建新的 CLLocationManager，所有异步 delegate 处理先核对 manager 身份及开启意图；关闭、失败或旧会话的迟到回调不能重新激活。进入后台申请一个有限的过渡任务，定位回调、回前台、停止、失败或系统过期时结束；每个任务有独立 token，不续租、不用定时器周期重启定位。进程被终止后的自动重启不属于本版本承诺。
+
+`location_updates_started` 表示调用系统启动接口；`location_update_received` 才表示实际收到定位回调，每五秒最多写一条，updateCount 保留累计回调数。日志含会话、权限 / 精度权限、配置、应用状态、回调时间、位置记录时间 / 年龄和水平精度；不含经纬度。`location_updates_paused`、`location_updates_resumed`、`location_update_interrupted` 和有限任务的开始 / 结束 / 过期另外记录。最后一次回调、调度 tick、亮度样本与通知结果需要分别评价；不能从定位请求或某一条回调推断整个后台时段都连续执行。
 
 ## 通用抽象与监听宿主
 
@@ -40,8 +48,10 @@ PiP 主体、来源宿主、44pt 开启与 0.1pt 缩小流程沿用 build 16。�
 
 ## 参考来源
 
+- 1.0.2 参考用户本地提供的华中大体育砸壳包，运动页通过 MAMapView 允许后台定位；精确调用、未知项及本工程的独立选择见 [LOCATION_REFERENCE.md](LOCATION_REFERENCE.md)。
+
 - PiP 生命周期与公开视频通话内容源参考 [Yoroin/GlobalRefresh-PiP](https://github.com/Yoroin/GlobalRefresh-PiP)，其 NOTICE 同时注明 [CaiWanFeng/PiP](https://github.com/CaiWanFeng/PiP)。当前适配器在本工程中独立实现，没有引入上游后台定时、播放器或高刷逻辑。
-- 低精度后台定位策略参考 [truongkma/t-location](https://github.com/truongkma/t-location)。该仓库使用 AGPL-3.0；本工程未复制其源码，使用系统 CoreLocation 接口独立实现权限与生命周期。
+- 初版低精度后台定位策略参考 [truongkma/t-location](https://github.com/truongkma/t-location)。该仓库使用 AGPL-3.0；本工程未复制其源码，使用系统 CoreLocation 接口独立实现权限与生命周期。
 - 平台接口依据 Apple 的 [视频通话 PiP](https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-for-video-calls)、[PiP 内容源](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class)、[后台定位许可](https://developer.apple.com/documentation/corelocation/cllocationmanager/allowsbackgroundlocationupdates)及[音频会话中断](https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionnotification)。
 
 本机验证涵盖接口编译、独立开关与宿主交接回归；系统授权、PiP 可启动性、后台与锁屏调度由 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 的专项实机检查确认。

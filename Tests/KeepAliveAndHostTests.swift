@@ -51,6 +51,49 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertNotNil(manager.entries.first { $0.id == .pip }?.state.lastError)
     }
 
+    @MainActor func testLocationAndPiPShareOneBackgroundListenerAndLastStopSleepsIt() async throws {
+        let fixture = HostFixture()
+        fixture.coordinator.setAppExecutionAllowed(false)
+        try await fixture.coordinator.reconcile()
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        let location = TestKeepAlive(), pip = TestKeepAlive()
+        let manager = KeepAliveManager(services: [(.location, location), (.pip, pip)])
+        manager.onChange = {
+            let allowed = [KeepAliveMethod.location, .pip].contains {
+                manager.state(for: $0)?.phase.canMessage == true
+            }
+            fixture.coordinator.setAppExecutionAllowed(allowed)
+        }
+
+        location.setPhase(.starting)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        location.setPhase(.active)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.wakeCalls, 1)
+        // A temporary positioning failure does not end the location session.
+        location.setPhase(.reasserting)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.wakeCalls, 1)
+
+        try await manager.setEnabled(true, method: .pip)
+        try await fixture.coordinator.reconcile()
+        XCTAssertEqual(fixture.runtimes.count, 1)
+        XCTAssertEqual(runtime.wakeCalls, 1)
+        try await manager.setEnabled(false, method: .location)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(pip.stops, 0)
+
+        try await manager.setEnabled(false, method: .pip)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertNil(runtime.snapshot.heartbeatAt)
+        try await manager.setEnabled(true, method: .location)
+        XCTAssertEqual(runtime.snapshot.phase, .running)
+        XCTAssertEqual(runtime.wakeCalls, 2)
+        location.setPhase(.failed)
+        XCTAssertEqual(runtime.snapshot.phase, .sleeping)
+        XCTAssertEqual(fixture.runtimes.count, 1)
+    }
+
     @MainActor func testManagerRecordsConfirmedPipActiveTransition() async throws {
         let pip = TestKeepAlive()
         var events: [(String, [String: String])] = []

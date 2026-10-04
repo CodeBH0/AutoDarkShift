@@ -32,7 +32,7 @@ import UIKit
         let pip = PiPKeepAliveService(record: record)
         let location = LocationKeepAliveService(record: record)
         weak var diagnosticHost: MonitoringHostCoordinator?
-        let context: @MainActor () -> [String: String] = { [weak pip] in
+        let context: @MainActor () -> [String: String] = { [weak pip, weak location] in
             let state = UIApplication.shared.applicationState
             let stateName: String
             switch state {
@@ -44,6 +44,7 @@ import UIKit
             let snapshot = diagnosticHost?.localRuntimeSnapshot
             return ["applicationState": stateName, "appForeground": String(state != .background),
                     "pipPhase": pip?.state.phase.rawValue ?? "unregistered",
+                    "locationPhase": location?.state.phase.rawValue ?? "unregistered",
                     "listenerHost": diagnosticHost?.usesVPN == true ? "vpn" : "app",
                     "runtimePhase": snapshot?.phase.rawValue ?? "none",
                     "pollInterval": snapshot?.activePollInterval.map { String($0) } ?? "none",

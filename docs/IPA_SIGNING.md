@@ -1,10 +1,10 @@
 # iPhone 重签 IPA
 
-已使用 Xcode 16.2 / iOS 18.2 SDK 直接编译 App target，构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。未安装 iOS 平台或模拟器。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.1，build 17，通信协议 3。
+已使用 Xcode 16.2 / iOS 18.2 SDK 直接编译 App target，构建 iPhone arm64 Release 版本，最低系统 iOS 17.0。未安装 iOS 平台或模拟器。产物包含主 App 和 `PlugIns/PacketTunnel.appex`，版本 1.0.2，build 18，通信协议 3。
 
-本次正常递增至 build 17，修复场景 inactive 造成多余 sleep / wake、许可与实际 runtime phase 不一致时未恢复的问题。App 内轮询等待与 UIKit 读数解耦，增加从平台 active 到评分、授权与通知完成的诊断。PiP 主体和 GlobalRefresh 的“开启悬浮窗 → 一键0.1pt”流程沿用 build 16，模型与 Boost 公式不变；Location 暂不修改，系统 Tab Bar 和两路导出沿用。平台说明见 [KEEP_ALIVE.md](KEEP_ALIVE.md)。
+本次正常递增至 build 18，版本更新到 1.0.2。Location 改为连续定位，增加权限变化、暂停后恢复、旧会话回调隔离和有限过渡任务清理；参考本地华中大体育砸壳包的运动页后台定位路径，证据与区别见 [LOCATION_REFERENCE.md](LOCATION_REFERENCE.md)。界面增加前台开启、位置用途及耗电提示，运行日志可分别核对定位回调、亮度读取和通知结果。
 
-文件：`build/AutoDarkShift-1.0.1-build17-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
+文件：`build/AutoDarkShift-1.0.1-build18-resign.ipa`。该包没有开发者证书签名或 provisioning profile；本地 ad-hoc 占位签名仅用于携带权限信息，不能直接安装。需要在 iPhone 的签名工具中使用你的 p12 证书和匹配的 `.mobileprovision` 描述文件重新签名。
 
 ## 签名时保留的内容
 
@@ -25,7 +25,7 @@
 | 扩展 `Info.plist` | `CFBundleIdentifier`、`AppGroupIdentifier` |
 | 主 App 和扩展的签名 entitlements | 保留共享能力时，`com.apple.security.application-groups` 使用相同、已注册的 App Group；无该能力时移除 |
 
-扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。本次展开的权限文件另存于 `build/build17/Signing/AutoDarkShift.entitlements` 和 `build/build17/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
+扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。本次展开的权限文件另存于 `build/build18/Signing/AutoDarkShift.entitlements` 和 `build/build18/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
 
 如果签名工具不支持同步上述自定义字段，可先将自己的标识符写入 `Config/Local.xcconfig`，再运行打包脚本。构建无需把证书交给本机：
 
@@ -41,8 +41,8 @@ bash tools/package_ipa.sh --direct-sdk
 
 ## 验证范围
 
-本机 61 项 core checks、56 个 XCTest 方法通过，0 失败；含 34 项模型、16 项多保活 / 宿主 / 读数到通知决定、5 项真实 DispatchSource 调度与资源释放，以及包装运行时 / 存储 / 通信场景的测试。真实 localhost TCP 实际执行。完整 iPhoneOS 18.2 SDK 验证 App / PacketTunnel 平台接口，arm64、最低 iOS 17、同为 1.0.1 / build 17。
+本机 61 项 core checks、57 个 XCTest 方法通过，0 失败；包含真实 localhost TCP 双流传输，以及新增 Location / PiP 共享一个 App 内监听、独立关闭和最后一个保活停止后 sleep 的模拟宿主回归。测试运行于 macOS，不直接执行 UIKit / CoreLocation 适配器。完整 iPhoneOS 18.2 SDK 已编译 App / PacketTunnel，arm64、最低 iOS 17、同为 1.0.2 / build 18。
 
-本次正常递增 build。ZIP、双组件权限 / 标识符 / 版本、原生框架边界、占位签名与 SHA-256 独立核对结果保存在 `build/build17/ipa-verification.json`。包大小 866746 字节，SHA-256 `960c11c753919fe78b24f2b0edc45c350bdd1a3adac91a0d91bfd82089275b0a`；原有 12 份 IPA 校验值全部不变。
+ZIP、双组件权限 / 标识符 / 版本、框架边界、占位签名与 SHA-256 独立核对结果保存在 `build/build18/ipa-verification.json`。包大小 873128 字节，SHA-256 `3d9edf4d4ce1c578d9da0b485913d1b713722d6d7f97bbe41fc71ddfff772f75`；原有 13 份 IPA 校验值全部不变。未读取开发者证书或描述文件，未安装 iOS 平台、模拟器或虚拟机。
 
-PiP 主体、44pt 开启与“一键0.1pt”流程不变。App 内监听显式使用 DispatchSourceTimer 等待、MainActor 读取 UIKit，VPN 使用原调度。重签后先关闭 VPN / Location，记录进入后台与物理调亮度时间；分别导出运行 / Boost 日志，按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 第 13 节判断调度、读数、评分、授权与实际通知的断点。最新旧包日志虽有后台 poll，仍不能证明亮度读数新鲜或通知已展示；本机测试与占位签名不代表新包真机验收通过。
+重签后先关闭 VPN / PiP，单独开启 Location，按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 第 14 节测试权限、静止 / 移动、后台至少 30 分钟、锁屏及关闭后恢复。记录实际调亮度的时间与通知结果，并分别导出运行 / Boost 日志；持续定位、后台 UIKit 亮度新鲜度和通知展示需要真机分别确认。本机编译、纯逻辑回归与占位签名不代表真机验收通过。

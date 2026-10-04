@@ -1,4 +1,20 @@
-# 验证记录（当前 1.0.1 / build 17）
+# 验证记录（当前 1.0.2 / build 18）
+
+## 2026-10-05 Location 连续后台会话（1.0.2 / build 18）
+
+参考本地华中大体育 1.3.2 / build 2 砸壳包，确认运动页由 MAMapView 请求后台定位，未把一次性取址 helper 或 SDK 后台任务符号当成持续保活证据。完整静态证据见 [LOCATION_REFERENCE.md](LOCATION_REFERENCE.md)。本工程独立使用 CoreLocation 的 Best / 无距离过滤连续模式，不自动暂停，显示后台定位指示；增加前台恢复、权限变化处理、manager 身份隔离与有限后台过渡任务清理，记录回调时间 / 精度而不保留坐标。没有添加周期性重启、静音播放或新的亮度读取接口。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程与空白检查 | 通过：198 个对象、54 个文件；57 个唯一 XCTest 方法，git diff --check 通过；工程结构未改变 |
+| core checks | 通过：61 项生产场景，含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 通过：57 个方法、0 失败；新增 Location / PiP 共用一个监听、独立停止、最后一个保活停止后 sleep 的模拟宿主回归 |
+| Location 适配器审查 / 编译 | 只读复核权限、旧回调与资源清理；主 App iPhone arm64 Release 编译成功，无编译警告或错误；未用模拟宿主测试冒充真实 CoreLocation delegate 验证 |
+| iPhone Release / IPA | 通过：现有 Xcode 16.2 / iPhoneOS 18.2 SDK，App / PacketTunnel 均为 1.0.2 / build 18、arm64、最低 iOS 17；未安装 iOS 平台、模拟器或虚拟机 |
+| 包核对 / 旧包保留 | 通过：ZIP、双组件占位签名、标识符、权限、定位用途和框架边界；原有 13 份 IPA 校验不变；873128 字节，SHA-256 `3d9edf4d4ce1c578d9da0b485913d1b713722d6d7f97bbe41fc71ddfff772f75` |
+| 真机授权、后台 / 锁屏、耗电、亮度新鲜度与通知展示 | 未执行；由用户手机侧重签并按 DEVICE_ACCEPTANCE 第 14 节测试 |
+
+打包执行 `bash tools/package_ipa.sh --direct-sdk`，共享 build 号从 17 自动递增到 18；旧产物保留。本地验证日志在忽略的 `build/validation-location-20261005/`，双组件编译与包核对在 `build/build18/`；源码、配置、测试和公共文档提交，本地文档、日志、分析数据和 IPA 不提交。使用完整 Xcode 与新的项目内 SwiftPM 缓存，未安装任何平台，也未进行 push。
 
 ## 2026-10-04 PiP 后台监听协调与调度诊断（build 17）
 

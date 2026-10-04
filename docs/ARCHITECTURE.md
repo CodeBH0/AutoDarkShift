@@ -38,7 +38,7 @@ flowchart TD
 | 仪表 | `App/DashboardView.swift` | 当前状态、Auto Dark Shift 开关、切换监听与通知统计二级入口 |
 | 保活 / 信息 | `App/KeepAliveView.swift`、`App/InformationView.swift` | 三个独立开关 / 真实平台状态，以及版本信息 |
 | 通用保活抽象 | `Shared/KeepAliveContracts.swift`、`KeepAliveManager.swift`、`KeepAliveSwitchControl.swift` | Foundation 接口与每种方案独立生命周期；不引用监听、模型、配置存储或通知业务 |
-| 原生保活适配器 | `KeepAlive/` | VPN 系统配置和连接，PiP 内容源与 delegate，低精度后台定位与权限；原生框架只进入 App target |
+| 原生保活适配器 | `KeepAlive/` | VPN 系统配置和连接，PiP 内容源与 delegate，连续后台定位、权限与恢复；原生框架只进入 App target |
 | 监听宿主协调 | `Monitoring/MonitoringHostCoordinator.swift` | App 与 VPN 的监听选择、启停交接、已获取成功历史合并；不改变三种保活的独立开关 |
 | 监听业务 | `Monitoring/SwitchMonitor.swift` | 原有模型 v2、采样、冷却、去重与双日志；新增独立 isEnabled 配置 |
 | 输入 / 输出 | `Platform/ScreenBrightnessSampler.swift`、`Platform/LocalModeNotificationSink.swift` | 真实 UIKit 读数与通知提交，两种监听宿主复用 |
@@ -57,7 +57,7 @@ Auto Dark Shift 的 `isEnabled` 与保活开关独立。关闭后取消采样与
 
 `didStart` 的实际 active 经 KeepAliveManager 回调到 AppController，再由宿主协调器按真实 runtime phase 唤醒同一个 SwitchMonitor。重复许可也能修正仍 sleeping 的实例；在途宿主交接完成后重新应用当前许可。`.inactive` 保留此前前后台许可，只有 `.background` 撤销前台许可，避免控制中心或 PiP 启动动画造成不必要的观测重置；UI 刷新在 active 场景恢复。
 
-采样器只管理亮度观察者与 MainActor 读取，独立 PollingScheduler 管理等待。App 显式注入 DispatchPollingScheduler，VPN 使用默认 MainRunLoopPollingScheduler。Dispatch 队列不访问 UIKit，只投递至多一个待处理的 MainActor 读取；停止、变频和重新安装用 generation 拒绝旧 tick，不补发错过的读数。释放时取消 source / Timer 与亮度观察者。该调度器复用于任意获得 App 执行许可的保活方案，本轮不修改 Location 或增加音频方案。
+采样器只管理亮度观察者与 MainActor 读取，独立 PollingScheduler 管理等待。App 显式注入 DispatchPollingScheduler，VPN 使用默认 MainRunLoopPollingScheduler。Dispatch 队列不访问 UIKit，只投递至多一个待处理的 MainActor 读取；停止、变频和重新安装用 generation 拒绝旧 tick，不补发错过的读数。释放时取消 source / Timer 与亮度观察者。该调度器复用于任意获得 App 执行许可的保活方案，该 build 17 调度改动不涉及 Location 或增加音频方案。
 
 最新 build 16 日志显示 PiP 实际 active 后仍有 poll，最后心跳也更新；不能据此认定旧 Timer 已停止。Dispatch 调整用于去除轮询等待对主 RunLoop 的依赖，并分开观测 worker tick 与 MainActor 读数。后台执行仍取决于系统调度；该 timer 本身不提供保活资格。底层模型与 Boost 算法不变。
 
