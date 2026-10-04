@@ -7,9 +7,14 @@ import UIKit
     let name = "PiP"
     private(set) var state = KeepAliveState()
     var onStateChange: ((KeepAliveState) -> Void)?
-    private static let contentSize = CGSize(width: 300, height: 0.1)
+    private static let openingHeight: CGFloat = 44
+    private static let minimumHeight: CGFloat = 0.1
+    private var surfaceHeight: CGFloat = openingHeight
+    private var contentSize: CGSize { CGSize(width: 300, height: surfaceHeight) }
     private let record: (String, [String: String]) -> Void
     private var sourceView: UIView?
+    private weak var sourceHost: UIView?
+    private var sourceHeightConstraint: NSLayoutConstraint?
     private var contentController: AVPictureInPictureVideoCallViewController?
     private var controller: AVPictureInPictureController?
     private var observations: [NSKeyValueObservation] = []
@@ -35,7 +40,8 @@ import UIKit
     func updateState() {
         if let controller, confirmed {
             if controller.isPictureInPictureActive, requested {
-                publish(.init(phase: .active, description: "画中画运行中"))
+                publish(.init(phase: .active, description: surfaceHeight == Self.minimumHeight
+                              ? "画中画运行中 · 已设为 0.1pt" : "画中画运行中"))
             } else if !controller.isPictureInPictureActive, state.phase == .active {
                 record("pip_system_inactive", diagnostics())
                 finish(.init(phase: .stopped, description: "画中画已停止"))
@@ -54,29 +60,28 @@ import UIKit
             throw KeepAliveError.message("此设备不支持画中画保活。")
         }
         guard controller == nil else { return }
-        guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
-            .filter({ $0.activationState == .foregroundActive || $0.activationState == .foregroundInactive })
-            .flatMap(\.windows).first(where: { $0.isKeyWindow }),
-              let host = window.rootViewController?.view else {
-            throw KeepAliveError.message("没有可用的前台窗口；请回到 App 内启动画中画。")
+        guard let host = sourceHost, host.window != nil else {
+            throw KeepAliveError.message("画中画来源尚未入窗；请回到 App 前台后重试。")
         }
-        // A stable root source survives tab changes and lazy Form row removal.
+        // The dedicated SwiftUI root host survives tab changes and lazy Form row removal.
         let source = UIView()
         source.backgroundColor = .clear
         source.isOpaque = false
         source.isUserInteractionEnabled = false
         source.translatesAutoresizingMaskIntoConstraints = false
         host.addSubview(source)
+        let heightConstraint = source.heightAnchor.constraint(equalToConstant: contentSize.height)
+        sourceHeightConstraint = heightConstraint
         NSLayoutConstraint.activate([
             source.centerXAnchor.constraint(equalTo: host.centerXAnchor),
             source.centerYAnchor.constraint(equalTo: host.centerYAnchor),
-            source.widthAnchor.constraint(equalToConstant: Self.contentSize.width),
-            source.heightAnchor.constraint(equalToConstant: Self.contentSize.height)
+            source.widthAnchor.constraint(equalToConstant: contentSize.width),
+            heightConstraint
         ])
         sourceView = source
         let content = AVPictureInPictureVideoCallViewController()
-        content.preferredContentSize = Self.contentSize
-        content.view.frame = CGRect(origin: .zero, size: Self.contentSize)
+        content.preferredContentSize = contentSize
+        content.view.frame = CGRect(origin: .zero, size: contentSize)
         content.view.backgroundColor = .clear
         content.view.isOpaque = false
         content.view.layer.backgroundColor = UIColor.clear.cgColor
@@ -99,7 +104,8 @@ import UIKit
         let current = AVPictureInPictureController(contentSource: .init(
             activeVideoCallSourceView: source, contentViewController: content))
         current.delegate = self
-        current.canStartPictureInPictureAutomaticallyFromInline = false
+        current.requiresLinearPlayback = true
+        current.canStartPictureInPictureAutomaticallyFromInline = requested
         controller = current
         observeSession(current)
         record("pip_prepared", diagnostics())
@@ -113,6 +119,9 @@ import UIKit
         requested = true
         startupFailure = nil
         finalAfterStop = .init(phase: .stopped, description: "画中画已停止")
+        // GlobalRefresh normal opening restores 44pt before asking AVKit to start.
+        // A 0.1pt Auto Layout source can round to zero on the device, so shrink only after didStart.
+        setSurfaceHeight(Self.openingHeight)
         publish(.init(phase: .starting, description: "正在准备画中画"))
         do {
             try await prepare()
@@ -143,9 +152,12 @@ import UIKit
                 }
                 try await Task.sleep(nanoseconds: 100_000_000)
             }
-            throw KeepAliveError.message(issuedStart
-                ? "系统未确认画中画启动（8 秒超时）。"
-                : "画中画来源未就绪或系统不允许启动（8 秒超时）。")
+            let reason: String
+            if sourceView?.window == nil { reason = "来源视图未入窗" }
+            else if sourceView?.bounds.isEmpty != false { reason = "来源视图实际尺寸为空" }
+            else if !current.isPictureInPicturePossible { reason = "系统 isPictureInPicturePossible 为 false" }
+            else { reason = "系统未确认画中画启动" }
+            throw KeepAliveError.message("\(reason)（8 秒超时）。")
         } catch {
             if token != generation { throw CancellationError() }
             if error is CancellationError { stop(); throw error }
@@ -162,8 +174,37 @@ import UIKit
         requestStop(finalState: .init(phase: .stopped, description: "画中画已停止"))
     }
 
+    func attachSourceHost(_ host: UIView) {
+        sourceHost = host
+    }
+
+    func detachSourceHost(_ host: UIView) {
+        if sourceHost === host { sourceHost = nil }
+    }
+
+    func minimizeWindow() throws {
+        guard confirmed, requested, controller?.isPictureInPictureActive == true, state.phase == .active else {
+            record("pip_minimum_height_rejected", diagnostics())
+            throw KeepAliveError.message("请先开启悬浮窗并拖到侧边吸附。")
+        }
+        setSurfaceHeight(Self.minimumHeight)
+        record("pip_minimum_height_applied", diagnostics())
+        updateState()
+    }
+
+    private func setSurfaceHeight(_ height: CGFloat) {
+        surfaceHeight = height
+        sourceHeightConstraint?.constant = height
+        contentController?.preferredContentSize = contentSize
+        if controller?.isPictureInPictureActive != true {
+            contentController?.view.frame = CGRect(origin: .zero, size: contentSize)
+        }
+        layoutSource()
+    }
+
     private func requestStop(finalState: KeepAliveState) {
         requested = false
+        controller?.canStartPictureInPictureAutomaticallyFromInline = false
         generation = UUID()
         finalAfterStop = finalState
         guard let current = controller else { finish(finalState); return }
@@ -177,9 +218,14 @@ import UIKit
     }
 
     private func layoutSource() {
+        sourceView?.isHidden = false
+        sourceView?.alpha = 1
+        sourceView?.layer.opacity = 1
+        contentController?.view.alpha = 1
         sourceView?.superview?.layoutIfNeeded()
         contentController?.view.setNeedsLayout()
         contentController?.view.layoutIfNeeded()
+        CATransaction.flush()
     }
     private func configureAudio() throws {
         do {
@@ -290,6 +336,7 @@ import UIKit
         contentController = nil
         sourceView?.removeFromSuperview()
         sourceView = nil
+        sourceHeightConstraint = nil
         if audioAcknowledgement != "not_configured" {
             do { try configureAudio() }
             catch { record("pip_audio_release_failed", ["error": keepAliveErrorDescription(error)]) }
@@ -303,7 +350,9 @@ import UIKit
     private func diagnostics() -> [String: String] {
         let audio = AVAudioSession.sharedInstance()
         return [
-            "route": "VideoCall_PiP_only", "playerStatus": "not_used", "preferredHeight": "0.1",
+            "route": "VideoCall_PiP_only", "playerStatus": "not_used", "preferredHeight": String(Double(surfaceHeight)),
+            "sourceHeightConstraint": sourceHeightConstraint.map { String(Double($0.constant)) } ?? "none",
+            "sourceHostInWindow": String(sourceHost?.window != nil),
             "isPictureInPicturePossible": String(controller?.isPictureInPicturePossible ?? false),
             "isPictureInPictureActive": String(controller?.isPictureInPictureActive ?? false),
             "isPictureInPictureSuspended": String(controller?.isPictureInPictureSuspended ?? false),
@@ -347,6 +396,7 @@ import UIKit
         Task { @MainActor [weak self] in
             guard let self, self.matches(identity) else { return }
             self.requested = false
+            self.controller?.canStartPictureInPictureAutomaticallyFromInline = false
             self.generation = UUID()
             self.publish(.init(phase: .stopping, description: "正在停止画中画"))
             self.endBackgroundTransition()

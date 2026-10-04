@@ -1,18 +1,20 @@
 # 多方案保活（VPN / PiP / Location）
 
-三种方案在“保活”Tab 各有一个开关，可以同时开启；某种方案失败或关闭不停止其他方案。独立静音音频方案已取消。仪表中的 Auto Dark Shift 控制监听业务，关闭它不关闭保活；通知冷却、测试通知、统计与两路导出仍在原有二级功能页面。
+三种方案在“保活”Tab 可独立同时开启；VPN / Location 使用开关，PiP 使用“开启悬浮窗 / 关闭悬浮窗”和“一键0.1pt”按钮。某种方案失败或关闭不停止其他方案。独立静音音频方案已取消。仪表中的 Auto Dark Shift 控制监听业务，关闭它不关闭保活；通知冷却、测试通知、统计与两路导出仍在原有二级功能页面。
 
 ## 平台适配
 
 | 方案 | 使用方式和真实状态 | 后台载体 |
 | --- | --- | --- |
 | VPN | 首次准备系统配置，状态跟随 NEVPNConnection；维持既有最小隧道与网络策略 | PacketTunnel 进程 |
-| PiP | 在前台保活页打开开关；来源挂在 App 根视图，系统 didStart 且 isPictureInPictureActive 为真后才显示运行中 | App 进程 |
+| PiP | 在前台点击“开启悬浮窗”，确认实际浮窗后拖到侧边，再点“一键0.1pt”；系统 didStart 且 active 为真后才显示运行中 | App 进程 |
 | Location | 请求使用期间定位，再请求始终定位；三公里精度、最大距离过滤、不自动暂停；拒绝与更新中断明确呈现 | App 进程 |
 
-PiP 按本轮用户确认采用参考项目默认 VideoCall 的 PiP-only 分支：AVPictureInPictureVideoCallViewController + ContentSource，没有 AVPlayer / AVPlayerLayer、占位视频、静音 PCM 或动态显示。来源固定宽 300pt、高 0.1pt，内容 preferredContentSize 也固定为 300 × 0.1pt；不提供高度设置，也不执行参考项目将最小高度提升至 44pt 的逻辑。系统实际浮窗尺寸仍由 iOS 管理，不能把首选内容尺寸当作系统外窗尺寸保证。
+PiP 采用参考项目默认 VideoCall 的 PiP-only 分支：AVPictureInPictureVideoCallViewController + ContentSource，没有 AVPlayer / AVPlayerLayer、占位视频、静音 PCM 或动态显示。保留 GlobalRefresh 的两阶段流程：普通开启先恢复 300 × 44pt 的来源和 preferredContentSize，系统确认运行后才允许“一键0.1pt”将来源约束与 preferredContentSize 调为 300 × 0.1pt。停止再开总是恢复 44pt，不在启动前缩小；没有自定义高度菜单。系统实际浮窗尺寸仍由 iOS 管理，侧边吸附后缩小的实际效果需真机记录。
 
-来源挂在稳定的 App 根视图，保持到本次 PiP 会话结束；空白内容子视图在创建 ContentSource 前完成边缘约束和布局。首次请求前等待布局提交，检查来源已入窗、非空尺寸和 isPictureInPicturePossible；最多三次请求，只有系统没有进入启动过渡时才重试，8 秒内没有实际启动确认即失败。didStart 与实际 active 同时满足后发布运行中；KVO、delegate 和前台刷新校核系统状态，不用控制器存在推断运行。
+PiPSourceHost 通过透明、不拦截触摸的 UIKit 宿主覆盖在整个 TabView 上，独立于表单行和各 Tab。会话来源仅作为该宿主的子视图，保持到本次 PiP 会话结束；空白内容子视图在创建 ContentSource 前完成边缘约束和布局。首次请求前恢复表面可见属性、提交布局事务，检查来源已入窗、非空尺寸和 isPictureInPicturePossible；最多三次请求，只有系统没有进入启动过渡时才重试，8 秒内没有实际启动确认即失败，错误区分未入窗、空尺寸、系统不可启动及未确认启动。didStart 与实际 active 同时满足后发布运行中；缩到 0.1pt 后仍按实际 active 维持状态，不能因来源尺寸缩小或 possible 改变虚报停止。自动从 inline 启动仅在用户有开启意图时允许，停止时取消。
+
+上一版 build 16 的设备日志中，四次来源均已入窗但 sourceBounds 为 300 × 0，未产生任何 pip_start_requested / willStart / didStart。0.1pt 约束在设备布局后成为零高度是实际证据；本次恢复参考流程的 44pt 开启阶段，不把 UI 后台状态当成浮窗已开启。音频是否混播不构成这次失败的充分解释，最后一次没有其他音频仍出现同样的空来源。
 
 AVAudioSession 跟随参考项目 PiP-only 分支：释放媒体会话并设置 soloAmbient / default，不启动静音播放或主动保持 playback 会话。音频中断、路线变化和配置 / 释放错误记录实际结果。没有公开的音频 active 读回接口，日志中的 audioSessionAcknowledgement 表示调用结果。失败日志包含系统错误、possible / active / suspended、来源与内容尺寸、播放器 not_used、音频类别 / 模式 / 路线及过渡任务状态。
 

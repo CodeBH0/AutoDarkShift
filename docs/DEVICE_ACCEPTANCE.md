@@ -149,9 +149,9 @@
 
 ## 12. VideoCall PiP 修复专项（build 16）
 
-用户反馈 build 15 的 PiP 未正常开启、Location 保活未成功。本轮只修复 PiP，Location 暂不处理。用户确认改用 VideoCall 路线；内容为空白，来源和内容首选高度固定 0.1pt，系统外窗的实际尺寸另记录，不按首选高度推断。
+用户反馈 build 15 的 PiP 未正常开启、Location 保活未成功；上一版 build 16 日志进一步显示四次来源高度为 0，启动请求未发出。本节针对覆盖后的 build 16：VideoCall 路线内容为空白，先以 44pt 开启，再在系统确认运行后用“一键0.1pt”缩小。Location 暂不处理，系统外窗实际尺寸和隐藏效果另记录。
 
-1. 关闭 VPN 与 Location，打开 Auto Dark Shift。前台启停 PiP 至少五次，包括快速取消启动后再开；只有浮窗出现、系统 didStart 且 active 为真时显示运行中。切换到仪表、信息及二级页面，来源不应消失；系统关闭后再次开启应成功。
+1. 关闭 VPN 与 Location，打开 Auto Dark Shift。点击“开启悬浮窗”，先确认浮窗实际出现，准备日志 sourceBounds 高度应为 44，随后有 pip_start_requested / didStart，系统 active 为真才显示运行中。将浮窗拖到侧边，再点击“一键0.1pt”，核对 pip_minimum_height_applied 与首选高度 0.1，实际 active 与后台监听保持。停止再开应恢复 44pt；启停至少五次，包括快速取消启动后再开、缩小后停止再开和切换各 Tab / 二级页面。
 2. 退到后台至少 30 分钟，分别在 1、5、15、30 分钟形成新的合格亮度趋势，记录实际通知 / 外观结果。导出运行与 Boost 日志，核对 App 内实例、sample / heartbeatAt、时间覆盖、采样间断与错误。有限 background grace 过期后仍应有新的监听证据，不能用回前台时的 wake 冒充后台运行。
 3. 在后台用系统关闭浮窗。没有其他 App 保活时，后续本地监听应 sleep、清空心跳，停止增加采样；回前台才 wake。记录 pip_session_released：hasController=false、sourceInWindow=false、observerCount=0、stopTaskPending=false、backgroundGrace=false。PiP-only 不创建播放器或媒体音频租约，playerStatus=not_used。
 4. 先以系统其他 PiP、系统设置或不支持环境检查失败表现。8 秒未启动必须记录 pip_start_failed；核对明确错误、isPictureInPicturePossible / Active / Suspended、sourceBounds / sourceInWindow、audioCategory / Mode / Route / SessionAcknowledgement。未确认停止时必须保持停止中，不虚报运行或已停止。

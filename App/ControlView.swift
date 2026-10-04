@@ -24,6 +24,13 @@ struct ControlView: View {
             }
             .tabItem { Label("信息", systemImage: "info.circle") }
         }
+        .overlay {
+            if let pipService = controller.pipService {
+                PiPSourceHost(service: pipService)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .allowsHitTesting(false)
+            }
+        }
         .onAppear { controller.setForeground(scenePhase == .active) }
         .onChange(of: scenePhase) { _, phase in controller.setForeground(phase == .active) }
         .onChange(of: controller.exportURLs) { _, urls in showingExport = !urls.isEmpty }

@@ -53,6 +53,6 @@ import OSLog
         if let monitoring { client = monitoring } else { client = vpn }
         return AppController(keepAlive: vpn, monitoring: client, storage: storage,
                              storageError: storageError, diagnostics: diagnostics, record: record,
-                             keepAliveManager: manager, hostCoordinator: monitoring)
+                             keepAliveManager: manager, hostCoordinator: monitoring, pipService: pip)
     }
 }

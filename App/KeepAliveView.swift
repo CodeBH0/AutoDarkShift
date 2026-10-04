@@ -33,12 +33,28 @@ private struct KeepAliveEntryRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Toggle(entry.name, isOn: Binding(
-                get: { entry.isEnabled },
-                set: { controller.setKeepAliveEnabled($0, method: entry.id) }
-            ))
-            .disabled(!entry.isEnabled &&
-                      (entry.state.phase == .stopping || entry.isTransitioning))
+            if entry.id == .pip {
+                Text(entry.name)
+                HStack {
+                    Button(entry.isEnabled ? "关闭悬浮窗" : "开启悬浮窗") {
+                        controller.setKeepAliveEnabled(!entry.isEnabled, method: .pip)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(entry.state.phase == .stopping)
+                    Button("一键0.1pt") { controller.minimizePiPWindow() }
+                        .buttonStyle(.bordered)
+                        .disabled(entry.state.phase != .active || entry.isTransitioning)
+                }
+                Text("开启后将浮窗拖到侧边，再点“一键0.1pt”。")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Toggle(entry.name, isOn: Binding(
+                    get: { entry.isEnabled },
+                    set: { controller.setKeepAliveEnabled($0, method: entry.id) }
+                ))
+                .disabled(!entry.isEnabled &&
+                          (entry.state.phase == .stopping || entry.isTransitioning))
+            }
 
             HStack(spacing: 6) {
                 if entry.isTransitioning { ProgressView().controlSize(.small) }

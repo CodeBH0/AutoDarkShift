@@ -41,7 +41,7 @@ flowchart TD
 
 VPN 连接、重连及断开过程中使用扩展宿主；其他时候使用 App 内宿主。由 App 发起 VPN 启动前，先停止本地采样，并等待已交给系统的通知完成及历史保存，然后才请求系统连接。由 App 关闭 VPN 时，先发送 `prepareHostHandoff` 停止扩展监听，等待 stopped 回复并合并最后历史，再同步日志及断开；连接实际停止后启动 App 内监听。两个方向都保留已取得的较新成功历史，避免用旧快照回退去重。系统从外部断开、强杀或读回不可用时，只能合并已取得的记录；未知结果保留在诊断中，不能宣称未读到的最终历史已同步。
 
-没有 VPN 时，PiP / Location 支持的 App 后台运行承载同一个 App 内监听；二者同时开启不会创建两个监听。AppController 将前台状态及实际 active / reasserting 保活状态交给 MonitoringHostCoordinator 的本地执行策略。后台没有已确认保活时调用 sleep，取消采样并清空心跳；确认 PiP 已启动或回前台后 wake。后台创建本地宿主时先以禁用配置启动、进入睡眠，再恢复原配置，避免初次采样漏过限制；启动失败会停止该实例。此策略不改变 VPN 扩展，不把业务执行条件放进通用 KeepAlive 抽象。页面切换只影响显示，PiP 来源挂载于稳定根视图；UI 刷新仍只在前台运行。
+没有 VPN 时，PiP / Location 支持的 App 后台运行承载同一个 App 内监听；二者同时开启不会创建两个监听。AppController 将前台状态及实际 active / reasserting 保活状态交给 MonitoringHostCoordinator 的本地执行策略。后台没有已确认保活时调用 sleep，取消采样并清空心跳；确认 PiP 已启动或回前台后 wake。后台创建本地宿主时先以禁用配置启动、进入睡眠，再恢复原配置，避免初次采样漏过限制；启动失败会停止该实例。此策略不改变 VPN 扩展，不把业务执行条件放进通用 KeepAlive 抽象。PiPSourceHost 是整个 TabView 上的独立透明 UIKit 宿主，页面切换不拆除会话来源。先以 44pt 来源和内容启动，再在实际 active 后由独立“一键0.1pt”操作缩小；UI 刷新仍只在前台运行。
 
 Auto Dark Shift 的 `isEnabled` 与保活开关独立。关闭后取消采样与未提交候选、清除心跳，保留保活、成功历史和已有计数；已经交给系统的 add 仍记录实际完成结果。重新开启从新的观测基准开始。旧配置没有 isEnabled 字段时默认开启；保存开关发生在 VPN 启动中时，首次可读取后对比持久 revision 并补应用最新配置。
 

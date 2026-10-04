@@ -8,6 +8,7 @@ final class AppController: ObservableObject {
     @Published var configuration = MonitorConfiguration()
     @Published private(set) var autoDarkShiftEnabled = true
     @Published private(set) var keepAliveEntries: [KeepAliveEntry] = []
+    let pipService: PiPKeepAliveService?
     @Published private(set) var keepAliveState = KeepAliveState()
     @Published private(set) var runtimeConfirmed = false
     @Published private(set) var runtimeError: String?
@@ -50,13 +51,15 @@ final class AppController: ObservableObject {
     init(keepAlive: any KeepAliveService, monitoring: any MonitoringClient,
          storage: RuntimeStoreSelection?, storageError: String?,
          diagnostics: SharedStore?, record: @escaping (String, [String: String]) -> Void,
-         keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil) {
+         keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
+         pipService: PiPKeepAliveService? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
         self.record = record
         self.keepAliveManager = keepAliveManager ?? KeepAliveManager(services: [(.vpn, keepAlive)])
         self.hostCoordinator = hostCoordinator
+        self.pipService = pipService
         self.store = storage?.store
         self.storageMode = storage?.mode ?? .appGroup
         self.fallbackReason = storage?.fallbackReason
@@ -270,6 +273,15 @@ final class AppController: ObservableObject {
         } else {
             Task { await self.applyKeepAliveIntent(enabled, method: method) }
         }
+    }
+
+    func minimizePiPWindow() {
+        do {
+            guard let pipService else { throw KeepAliveError.message("画中画方案未注册。") }
+            try pipService.minimizeWindow()
+            message = "悬浮窗已设为 0.1pt。"
+            appError = nil
+        } catch { appError = describeError(error) }
     }
 
     private func applyKeepAliveIntent(_ enabled: Bool, method: KeepAliveMethod) async {

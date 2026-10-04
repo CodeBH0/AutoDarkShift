@@ -1,8 +1,10 @@
 # 验证记录（当前 1.0.1 / build 16）
 
-## 2026-10-04 VideoCall PiP 修复（build 16）
+## 2026-10-04 来源零高度修复与一键 0.1pt（覆盖 build 16）
 
-用户反馈 build 15 PiP 无法正常开启、Location 保活未成功。本轮只处理 PiP；用户进一步明确改用 VideoCall 路线，取消 AVPlayer / AVPlayerLayer 路线。参考 GlobalRefresh-PiP 的默认 VideoCall / PiP-only 分支，独立实现稳定根视图来源、空白内容容器、固定 0.1pt 内容首选高度、布局后启动、实际系统确认、失败诊断、有限后台过渡以及停止清理；没有移植动态显示、播放媒体、高刷计时器或私有 API。系统浮窗实际尺寸仍由 iOS 决定。
+用户反馈上一版 build 16 出现来源未就绪的 8 秒超时，并要求保留 GlobalRefresh 的“开启悬浮窗”和“一键0.1pt”流程。本轮读取其设备运行日志：四次 pip_prepared 均 sourceInWindow=true、sourceBounds=300 × 0，未出现任何 pip_start_requested / willStart / didStart；每次 possible 起初为 true，随后变为 false，8 秒后失败。其他音频在最后一次为 false，不能将混播当作充分原因。日志直接显示非空来源检查阻止了启动请求。
+
+本次恢复 GlobalRefresh 普通开启前使用 44pt、实际启动后再缩到 0.1pt 的两阶段流程。新增“开启悬浮窗 / 关闭悬浮窗”和“一键0.1pt”按钮；源 UIView 挂在整个 TabView 的独立透明 UIKit 宿主，先完成 300 × 44pt 来源 / 内容布局并提交事务，再请求启动。minimizeWindow 只允许系统已实际 active 的会话，将来源高度约束和 preferredContentSize 设为 0.1pt；再开启总是恢复 44pt。没有自定义高度菜单、动态内容、播放器、静音播放、高刷计时器或私有接口。系统浮窗尺寸与侧边隐藏效果仍需真机记录。Location 继续暂不修改。
 
 仅在 didStart 且 isPictureInPictureActive 为真时发布运行中。8 秒未确认启动记录错误与 possible / active / suspended、来源和内容尺寸、音频类别 / 模式 / 路线 / 调用结果，播放器状态明确为 not_used。取消或失败若已有系统启动请求，先保留会话请求停止；实际 inactive 且没有启动过渡后才清理，未确认时保持停止中。VideoCall / PiP-only 跟随参考释放媒体音频策略，协调器避免覆盖其他音频租约持有者，本方案不取得播放租约。
 
@@ -10,19 +12,19 @@ AppController 在前台或 PiP / Location 平台状态已确认为 active / reas
 
 | 检查 | 本轮实际结果 |
 | --- | --- |
-| 工程 / 空白检查 | 通过：190 个对象、51 个工程文件、48 个唯一 XCTest 方法；git diff --check 通过 |
+| 工程 / 空白检查 | 通过：192 个对象、52 个工程文件、48 个唯一 XCTest 方法；新增来源宿主仅进入 App，生成脚本已同步，git diff --check 通过 |
 | core checks | 通过：61 项生产场景，包括实际 localhost TCP 双流传输 |
 | Swift Package XCTest | 通过：48 个方法，0 失败；34 项模型、13 项多保活 / 宿主协调和包装 61 场景的运行时测试，运行于 macOS |
 | 干净副本与生成器 | 通过：没有 AGENTS.md / DEVELOPMENT.md 的副本可验证、重建；生成工程与共享 Scheme 与当前完全一致 |
 | iPhone Release 编译与 IPA | 通过：现有 iPhoneOS 18.2 SDK，arm64、最低 iOS 17；App / PacketTunnel 均为 1.0.1 / build 16，未安装平台或模拟器，未生成 archive |
 | IPA 独立核对 | 通过：ZIP、双组件版本 / 标识符 / 权限、占位签名、框架边界；VideoCall 类型在 App 中，未引用 AVPlayer / AVPlayerLayer，也不包含媒体资源 |
-| 大小与 SHA-256 | 810420 字节；`4f99e56607f5a17952959949b17461db91db01e5de6e4e4804ffe82d50d459c1` |
-| 旧产物与本地资料 | 此前 11 份 IPA 校验值不变；标准脚本递增为 build 16，已交付 build 15 保留；日志、IPA、证书、AGENTS.md / DEVELOPMENT.md 不提交 |
+| 大小与 SHA-256 | 819542 字节；`9cd5cce353947d6b992a2489500687184a8c873b6d01ba14f620fb04019d3d33` |
+| 覆盖与本地资料 | 按用户明确要求覆盖 build 16 IPA / 校验 / 构建目录；在本地打包副本固定版本，公共脚本仍默认递增并拒绝覆盖。其他 11 份 IPA 校验值不变；日志、IPA、证书、AGENTS.md / DEVELOPMENT.md 不提交 |
 | PiP 前台启动、后台 heartbeat、关闭后的真实资源与监听停止 | 未执行真机验收，按 DEVICE_ACCEPTANCE 第 12 节验证；Location 本轮暂不修复 |
 
-初次沙箱执行受到编译缓存写入 / 本机监听权限限制，获准后完成实际编译和 TCP 场景。首次 XCTest 与核心检查并行造成测试端口冲突，未计为通过；复用 SwiftPM 目录又出现 unknown build description，最终以全新项目内缓存串行运行 61 场景及 48 个 XCTest 全部通过。没有跳过失败项或安装 iOS 平台。纯逻辑测试不包含 AVKit，iPhone 编译验证平台接口，不能替代实机可启动性或持续性结论。
+本轮以全新项目内缓存串行运行 61 场景和 48 个 XCTest，全部通过。使用现有 SDK 编译 App / 扩展并核对占位签名，没有安装 iOS 平台或模拟器。纯逻辑测试不包含 AVKit，iPhone 编译验证平台接口，不能替代开启浮窗、缩小后隐藏或后台持续性结论；本次用户旧版本日志用于定位，不记为修复版验收通过。
 
-最终本地记录：`build/validation-pip-videocall/core-final.log`、`xctest-final.log`、`preflight-final.log`、`package-ipa.log`、`previous-ipa-sha256.json`；最终包核对位于 `build/build16/ipa-verification.json`，打包编译与权限位于 `build/build16/unsigned-build.log` 与 `Signing/`。这些过程文件不提交。
+最终本地记录：`build/validation-pip-opening/core-final.log`、`xctest-final.log`、`preflight-final.log`、`package-ipa.log`、`previous-ipa-sha256.json`；最终包核对位于 `build/build16/ipa-verification.json`，打包编译与权限位于 `build/build16/unsigned-build.log` 与 `Signing/`。原始设备日志留在 local-data/device-logs，本地固定 build 打包副本和这些过程文件不提交。
 
 ## 2026-10-04 多方案保活、功能开关与原生 Tab（build 15）
 
