@@ -1,6 +1,16 @@
 # iPhone 重签 IPA
 
-当前源码为 **1.0.3 / build 1**，按用户要求暂停本机编译，尚无该版本 IPA。新 `BrightnessDidChangeMessage` 业务要求 iOS 26 SDK；迁移至 Xcode 26 后首次打包使用 `bash tools/package_ipa.sh --direct-sdk --current-build`，说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。之后默认递增 build，构建目录按 `build/<版本>/build<编号>/` 隔离，旧产物不覆盖。以下为已打包的 build 18 历史记录。
+当前 IPA 为 **1.0.3 / build 1**：`build/AutoDarkShift-1.0.3-build1-resign.ipa`，供手机侧重签。新 `BrightnessDidChangeMessage` 业务要求 iOS 26 或更新系统，原业务仍支持最低 iOS 17；两条业务互斥。源码和构建说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+
+## 1.0.3 / build 1 当前包
+
+2026-10-04（America/Los_Angeles）已使用新环境的 Xcode 26.3 / iPhoneOS 26.2 SDK 编译 iPhone arm64 Release 主 App 和 `PlugIns/PacketTunnel.appex`，两个组件同为 1.0.3 / build 1、最低 iOS 17。61 项 core checks、68 个 XCTest 方法全部通过。编译报告 4 处既有 VPN 并发警告，未修改 VPN 行为；类型化亮度消息接口成功编译。
+
+包大小 978743 字节，SHA-256 `77c5258a7cb50fe0c2983e6bfc61eba5836fc365f7086c23e380fc2072b75dd6`；对应 `.ipa.sha256` 已核对。ZIP、双组件标识符 / 权限 / 版本、arm64、SDK / 最低系统、占位签名和深度校验全部通过，独立结果在 `build/1.0.3/build1/ipa-verification.json`。没有开发者证书签名或 provisioning profile，本地 ad-hoc 占位签名只携带权限，不能直接安装。主 App 与嵌入扩展仍需使用手机侧证书和匹配描述文件重签。
+
+首次打包执行 `bash tools/package_ipa.sh --direct-sdk --current-build`，保留指定 build 1；之后默认递增 build。当前构建、权限和日志按 `build/<版本>/build<编号>/` 隔离，脚本拒绝覆盖已有产物。未安装平台、模拟器或虚拟机。
+
+重签后按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 第 15 节测试业务互斥、前台消息、Location 后台 / 锁屏和通知结算。新 SDK 编译及纯逻辑测试不代表这些真机项目已通过。
 
 ## 1.0.2 / build 18 历史包
 
@@ -29,7 +39,7 @@
 | 扩展 `Info.plist` | `CFBundleIdentifier`、`AppGroupIdentifier` |
 | 主 App 和扩展的签名 entitlements | 保留共享能力时，`com.apple.security.application-groups` 使用相同、已注册的 App Group；无该能力时移除 |
 
-扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。本次展开的权限文件另存于 `build/build18/Signing/AutoDarkShift.entitlements` 和 `build/build18/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
+扩展 Bundle ID 必须以主 App Bundle ID 加 `.` 为前缀。不能只修改主 App 的 Bundle ID 而保留旧的 `PacketTunnelBundleIdentifier`。当前包的权限文件另存于 `build/1.0.3/build1/Signing/AutoDarkShift.entitlements` 和 `build/1.0.3/build1/Signing/PacketTunnel.entitlements`，便于签名工具手动配置。
 
 如果签名工具不支持同步上述自定义字段，可先将自己的标识符写入 `Config/Local.xcconfig`，再运行打包脚本。构建无需把证书交给本机：
 
@@ -41,9 +51,9 @@ bash tools/package_ipa.sh --direct-sdk
 
 脚本优先使用 `DEVELOPER_DIR` 指定的 Xcode，其次使用系统已选择的完整 Xcode、`/Applications/Xcode.app` 或下载目录中的 Xcode。它不修改系统的 Xcode 选择，不读取证书，也不连接 Apple 账号。
 
-每次执行会自动递增 `Config/Project.xcconfig` 中的 build 号，并将同一编号用于主 App 和扩展；失败的构建也保留该编号，不回退复用。归档、缓存、权限文件和编译日志保存在各自的 `build/build<编号>/`，IPA 与 SHA-256 文件名带 build 号，脚本拒绝覆盖已有产物。
+默认每次执行会自动递增 `Config/Project.xcconfig` 中的 build 号，并将同一编号用于主 App 和扩展；失败的构建也保留该编号，不回退复用。归档、缓存、权限文件和编译日志保存在各自的 `build/<版本>/build<编号>/`，IPA 与 SHA-256 文件名带 build 号，脚本拒绝覆盖已有产物。
 
-## 验证范围
+## 1.0.2 / build 18 历史验证范围
 
 本机 61 项 core checks、57 个 XCTest 方法通过，0 失败；包含真实 localhost TCP 双流传输，以及新增 Location / PiP 共享一个 App 内监听、独立关闭和最后一个保活停止后 sleep 的模拟宿主回归。测试运行于 macOS，不直接执行 UIKit / CoreLocation 适配器。完整 iPhoneOS 18.2 SDK 已编译 App / PacketTunnel，arm64、最低 iOS 17、同为 1.0.2 / build 18。
 

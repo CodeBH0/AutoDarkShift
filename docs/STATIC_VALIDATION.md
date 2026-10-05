@@ -1,12 +1,31 @@
 # 验证记录（当前源码 1.0.3 / build 1）
 
+## 2026-10-04 新环境编译与 IPA（1.0.3 / build 1）
+
+用户迁移项目后恢复编译。新环境使用 Xcode 26.3（17C529）、iPhoneOS 26.2 SDK、Swift 6.2.4；工程保持 Swift 5 语言模式和最低 iOS 17。首轮发现 `ExclusiveMonitoringBusiness` 保存的 `preflightMessage` 参数缺少 `@escaping`，补上后主 App 与 PacketTunnel 编译、链接成功；`UIScreen.BrightnessDidChangeMessage` 的类型化观察接口已由实际新 SDK 构建验证。未修改 VPN 行为。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程与空白检查 | 通过：208 个工程对象、58 个文件、3 个 target、4 个 plist、两个共享 Scheme，68 个唯一 XCTest 方法；git diff --check 通过 |
+| core checks | 通过：61 项生产场景，含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 通过：68 个方法、0 失败；包含业务互斥、未确认停用时禁止启用目标、等待在途通知结算、首次启动冲突、消息模式不轮询及旧回调拒绝 |
+| iPhone arm64 Release / IPA | 通过：主 App 与 PacketTunnel 同为 1.0.3 / build 1、最低 iOS 17、SDK 26.2；新消息 API 仅在 App 的 iOS 26 分支启用 |
+| IPA 独立核对 | 通过：ZIP、SHA-256、双组件版本 / 标识符 / Packet Tunnel 与 App Group 权限、arm64 架构、最低系统、占位签名及深度校验；无 provisioning profile |
+| 大小与 SHA-256 | 978743 字节；`77c5258a7cb50fe0c2983e6bfc61eba5836fc365f7086c23e380fc2072b75dd6` |
+| 编译警告 | 新工具链报告 4 处既有 VPN 并发警告：PacketTunnelProvider 的两处 self 捕获、VPNKeepAliveService 的 NEVPNConnection 捕获及 NetworkExtension preconcurrency 提示；不影响本次 Swift 5 模式构建，按用户要求保留 VPN 行为 |
+| 手机重签、安装、后台亮度消息与通知效果 | 未执行；按 DEVICE_ACCEPTANCE 第 15 节分别记录真实功能、读数和日志覆盖 |
+
+打包使用 `bash tools/package_ipa.sh --direct-sdk --current-build`，首次保留用户指定的 build 1，没有递增到 build 2，也没有覆盖旧产物。产物为 `build/AutoDarkShift-1.0.3-build1-resign.ipa`。构建只使用已安装的 iPhoneOS SDK；未安装 iOS 平台、模拟器或虚拟机，未读取开发者证书或描述文件。App 和扩展携带本地 ad-hoc 占位签名，仍须手机侧重签。
+
+核心 / XCTest / 预编译 / 打包日志保存在忽略的 `build/validation-sdk26-20261004/`；最终构建与独立 IPA 核对记录保存在 `build/1.0.3/build1/unsigned-build.log`、`Signing/` 和 `ipa-verification.json`。本轮日期采用新环境 America/Los_Angeles；以下日期和结果为迁移前历史记录。
+
 ## 2026-10-05 类型化亮度消息业务：源码交接
 
 按用户反馈回退 build 19 临时读取试验，基线为 `fdc9a55`（build 18）。新增 App 内 `UIScreen.BrightnessDidChangeMessage` 输入，与原业务互斥；复用模型，关闭新业务的轮询，分开保存状态与日志，先确认停采样及已提交通知结算再启用目标。源码配置为 1.0.3 / build 1。
 
-用户要求必须使用新 SDK、暂停本机编译，移至其他环境尝试。因此本轮 **没有执行 Swift 编译、core checks、Swift Package XCTest、iPhoneOS 构建或 IPA 打包**。新增互斥、通知结算、首次启动与消息采样回归测试已提供，结果待新环境运行。源码审查及 Python 工程检查的范围仅是文件归属、工程结构、配置和边界；不能确认新 SDK 编译结果或实际系统通知行为。迁移步骤见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+迁移前用户要求必须使用新 SDK、暂停本机编译，移至其他环境尝试。因此当时 **没有执行 Swift 编译、core checks、Swift Package XCTest、iPhoneOS 构建或 IPA 打包**。新增互斥、通知结算、首次启动与消息采样回归测试已提供，当时结果待新环境运行。源码审查及 Python 工程检查的范围仅是文件归属、工程结构、配置和边界；不能确认新 SDK 编译结果或实际系统通知行为。迁移步骤见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
 
-已有 build 18 / 19 及其他历史 IPA 保留。本节之后的 core、XCTest、编译和 IPA 成功记录均属于其标注的旧版本，不代表当前源码已经通过。
+迁移前已有 build 18 / 19 及其他历史 IPA 保留。本节之后的 core、XCTest、编译和 IPA 成功记录均属于其标注的旧版本，不代表当前源码已经通过。
 
 本轮静态检查已通过：208 个工程对象、58 个文件及两个共享 Scheme，主 App / 扩展 / 核心测试归属正确；提供 68 个唯一 XCTest 方法但未执行。打包脚本语法、4 个临时目录中的版本 / build 编号保留场景和 `git diff --check` 通过；15 份既有 IPA 的 SHA-256 与回退前基线一致。结果保存在本地 `build/validation-darwin-brightness-20261005/source-validation.json`，不进入提交。
 

@@ -18,7 +18,7 @@ enum MonitoringBusiness: String, Codable, Equatable {
 
     init(standard: any MonitoringClient, standardStore: any MonitorStore,
          message: any MonitoringClient, messageStore: any MonitorStore,
-         preflightMessage: () throws -> Void = {}) {
+         preflightMessage: @escaping () throws -> Void = {}) {
         self.standard = standard
         self.standardStore = standardStore
         self.message = message

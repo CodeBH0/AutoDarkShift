@@ -1,8 +1,8 @@
 # 1.0.3 / build 1：亮度消息业务与新环境构建
 
-本轮以 `fdc9a55`（1.0.2 / build 18）为基线，回退 build 19 的主 App `windowScene.screen.brightness` 临时读取试验。用户反馈两个读取入口的效果没有变化。build 19 提交仍保存在本地分支 `codex/archive-window-scene-build19`，已有 IPA、校验文件和构建目录保留。
+本轮以 `fdc9a55`（1.0.2 / build 18）为基线，回退 build 19 的主 App `windowScene.screen.brightness` 临时读取试验。用户反馈两个读取入口的效果没有变化。迁移前 build 19 提交另存于本地分支 `codex/archive-window-scene-build19`，当时已有 IPA、校验文件和构建目录保留；这些本地产物不由 Git clone 自动带入新环境。
 
-用户要求必须使用新 SDK，并暂停本机编译。本轮交付 **1.0.3 / build 1 源码**；没有编译或生成对应 IPA，也没有执行 Swift/core/XCTest。静态检查与源码审查不能替代新环境编译和真机验证。
+迁移前按用户要求暂停编译，只交付源码。2026-10-04（America/Los_Angeles）迁移至新环境后恢复构建：Xcode 26.3 / iPhoneOS 26.2 SDK / Swift 6.2.4 已成功编译主 App 和扩展，61 项 core checks、68 个 XCTest 全部通过。首轮编译发现的保存闭包参数补上 `@escaping`，业务逻辑保持原实现。当前已生成 **1.0.3 / build 1 IPA**，ZIP、版本、架构、权限及占位签名核对通过；真机亮度消息和后台效果仍待测试。详细结果见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)。
 
 ## 新业务
 
@@ -26,7 +26,7 @@
 
 需要装有 iOS 26 SDK 的 Xcode 26 或更新版本；Apple 的 [Xcode 26 发布说明](https://developer.apple.com/documentation/xcode-release-notes/xcode-26-release-notes)列出了 iOS 26 SDK 和 Swift 6.2。工程仍使用 Swift 5 语言模式、最低部署 iOS 17；新业务以 `@available(iOS 26.0, *)` 隔离，旧系统只能使用原业务。源码含新 SDK 类型，旧 Xcode 无法编译整个主 App。
 
-在新 Mac 解压源码，打开 `AutoDarkShift.xcodeproj` 可直接编译配置中的 **1.0.3 / build 1**。或者进入项目目录执行：
+在装有新 SDK 的 Mac 中打开 `AutoDarkShift.xcodeproj` 可直接编译配置中的 **1.0.3 / build 1**。或者进入项目目录执行：
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -39,7 +39,7 @@ bash tools/package_ipa.sh --direct-sdk --current-build
 
 核心检查和 XCTest 包含真实 localhost TCP，执行环境须允许监听与连接。新接口的 UIKit 编译不由纯 Foundation 测试覆盖，必须完成 App / 扩展的 iPhoneOS 构建。
 
-`--current-build` 仅用于本次已指定的 build 1 首次打包；已存在相同版本 / build 的输出则拒绝复用。随后常规运行 `bash tools/package_ipa.sh --direct-sdk` 会递增 build；失败的实际构建也保留编号。构建目录改为 `build/1.0.3/build1/`，不覆盖旧 `build/build18/` 等目录。成功后应生成：
+`--current-build` 仅用于本次已指定的 build 1 首次打包；已存在相同版本 / build 的输出则拒绝复用。随后常规运行 `bash tools/package_ipa.sh --direct-sdk` 会递增 build；失败的实际构建也保留编号。构建目录改为 `build/1.0.3/build1/`，不覆盖旧 `build/build18/` 等目录。本轮已生成以下产物；在其他环境首次打包也使用这些路径：
 
 - `build/AutoDarkShift-1.0.3-build1-resign.ipa`
 - 对应 `.ipa.sha256` 校验文件
