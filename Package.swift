@@ -18,7 +18,8 @@ let package = Package(
         .target(name: "AutoDarkShiftCore", path: ".",
                 exclude: ["App", "PacketTunnel", "Platform/ScreenBrightnessSampler.swift", "Platform/LocalModeNotificationSink.swift", "KeepAlive", "Config", "docs", "tools", "Tests",
                           "AutoDarkShift.xcodeproj", "README.md"] + localArtifacts,
-                sources: ["Shared", "Monitoring", "Platform/LoopbackMonitorTransport.swift"]),
+                sources: ["Shared", "Monitoring", "Platform/LoopbackMonitorTransport.swift",
+                          "Platform/BackBoardBrightnessProbe.swift", "Platform/BackBoardBrightnessSampler.swift"]),
         .testTarget(name: "AutoDarkShiftCoreTests", dependencies: ["AutoDarkShiftCore"], path: "Tests")
     ]
 )

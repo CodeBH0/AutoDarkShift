@@ -208,3 +208,14 @@
 5. 重启 App，验证仅恢复一条业务；保存冷却参数后确认当前业务应用。消息间断超过两秒、睡眠 / 唤醒之后应从新基线计算，不把单个恢复样本认作连续变化。
 
 缺少回调或日志不单独认定功能失败；记录实际事件时间和观测边界。未完成真实设备操作时不得填写“通过”。
+
+## 16. BackBoard 后台亮度探针（1.0.3 / build 2，待真机验证）
+
+1. 在信息页确认 build 2，在仪表开启“BackBoard 探针监听”，核对另外两条监听关闭。导出运行日志检查 `backboard_api_load` 的 available / loadStage / loaderError。加载失败应显示具体错误，三条监听均保留关闭意图，不以 UIKit 代替探针输入。
+2. 前台交替调暗 / 调亮，记录带时区的操作时间。核对 `backboard_brightness_sample` 的 brightness、uiKitBrightness、difference、sampleAt、sampleUptime、readCount；对照 `scope=backboard_monitor` 中实际样本、S 与通知结果。event 计数应为 0；UI 查询不会增加采样计数。
+3. 只开启 PiP，确认系统 actual active 后退到桌面，分别在 1、5、15、30 分钟调节亮度；记录实际通知、外部切换与日志覆盖。再关闭 PiP，只开启 Location 重复测试，并另外记录锁屏行为。以严格 background 窗口内的实际 getter 调用对照物理操作，不用返回前台后的 wake 证明此前新鲜度。
+4. 关闭全部 App 保活，在后台核对 sleep / scheduler_stopped 与停止增采样；回前台核对 wake / 新 samplerGeneration。仅开启 VPN 时，App 探针也应遵循这项策略，VPN 扩展仍使用原 API。
+5. 在通知已提交但未完成时切换三条业务，核对旧通知先结算、采样停止，再启用目标。反复切换及重启 App，应只恢复一条业务；保存冷却参数时确认当前业务应用。未选择探针时不应有探针加载或采样日志。
+6. 分别导出运行与 Boost；即使切回原监听，探针历史也仍可导出。Boost 中的亮度应是 BackBoard 输入，动态采样每次真实读数都保留；UIKit 对照只在运行日志。实际频率用相邻 uptime 与 source 判读，不能用每秒诊断条数代替。
+
+API 加载、后台执行、有效数值、读数及时性、模型候选、通知接受与实际外观分别记录。0–1 内的数值不证明实时；缺少记录不证明 getter 陈旧。本轮本机验证不能代替以上设备操作，详细边界见 [BACKBOARD_PROBE.md](BACKBOARD_PROBE.md)。

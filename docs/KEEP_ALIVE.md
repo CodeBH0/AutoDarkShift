@@ -38,7 +38,7 @@ AppController 复用既有配置、权限、统计、状态读取和日志服务
 
 由 App 发起连接时，先等待本地监听停止及已提交通知结算，再启动 VPN。由 App 发起断开时，先让扩展停止采样、确认 stopped 并取回最新成功历史，再断开连接。历史按完成时间合并，不用旧数据回退。外部断开、强杀或控制通道无回复时，只保留实际取得的历史，不推断未知通知结果。详见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
-App 内监听使用私有 LocalMonitoring 目录，与 ProviderRuntime / App Group 的日志独立。运行、Boost 分别导出，导出汇集对应的 App 内记录与已有 Provider 记录，保留 scope 与实例 ID；新宿主不会覆盖旧 Provider 缓存。
+App 内监听使用私有 LocalMonitoring 目录，与 ProviderRuntime / App Group 的日志独立。1.0.3 的亮度消息和 BackBoard 探针分别使用 MessageMonitoring / BackBoardMonitoring，三条业务互斥，App 新业务均沿用实际 PiP / Location 后台许可。运行、Boost 分别导出，导出汇集各业务对应的 App 内记录与已有 Provider 记录，保留 scope 与实例 ID；新宿主不会覆盖旧 Provider 缓存。探针测试见 [BACKBOARD_PROBE.md](BACKBOARD_PROBE.md)。
 
 ## 后台监听诊断（build 17）
 

@@ -1,5 +1,7 @@
 # 1.0.3 / build 1：亮度消息业务与新环境构建
 
+build 2 在本业务之外新增第三条互斥的 BackBoard 定时读取探针；亮度消息业务自身仍只接收类型化消息。当前探针入口、后台许可与日志见 [BACKBOARD_PROBE.md](BACKBOARD_PROBE.md)，本页其余内容保留 build 1 的实现和验证范围。
+
 本轮以 `fdc9a55`（1.0.2 / build 18）为基线，回退 build 19 的主 App `windowScene.screen.brightness` 临时读取试验。用户反馈两个读取入口的效果没有变化。迁移前 build 19 提交另存于本地分支 `codex/archive-window-scene-build19`，当时已有 IPA、校验文件和构建目录保留；这些本地产物不由 Git clone 自动带入新环境。
 
 迁移前按用户要求暂停编译，只交付源码。2026-10-04（America/Los_Angeles）迁移至新环境后恢复构建：Xcode 26.3 / iPhoneOS 26.2 SDK / Swift 6.2.4 已成功编译主 App 和扩展，61 项 core checks、68 个 XCTest 全部通过。首轮编译发现的保存闭包参数补上 `@escaping`，业务逻辑保持原实现。当前已生成 **1.0.3 / build 1 IPA**，ZIP、版本、架构、权限及占位签名核对通过；真机亮度消息和后台效果仍待测试。详细结果见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)。

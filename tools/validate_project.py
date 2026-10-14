@@ -81,9 +81,12 @@ expected_sources = {
     "AutoDarkShift": {str(p.relative_to(ROOT)) for folder in ["App", "KeepAlive", "Shared", "Monitoring", "Platform"]
                       for p in (ROOT / folder).glob("*.swift")},
     "PacketTunnel": {str(p.relative_to(ROOT)) for folder in ["PacketTunnel", "Shared", "Monitoring", "Platform"]
-                     for p in (ROOT / folder).glob("*.swift")},
+                     for p in (ROOT / folder).glob("*.swift")} -
+                    {"Platform/BackBoardBrightnessProbe.swift", "Platform/BackBoardBrightnessSampler.swift"},
     "AutoDarkShiftCoreTests": {str(p.relative_to(ROOT)) for folder in ["Tests", "Shared", "Monitoring"]
-                              for p in (ROOT / folder).glob("*.swift")} | {"Platform/LoopbackMonitorTransport.swift"},
+                              for p in (ROOT / folder).glob("*.swift")} |
+                             {"Platform/LoopbackMonitorTransport.swift", "Platform/BackBoardBrightnessProbe.swift",
+                              "Platform/BackBoardBrightnessSampler.swift"},
 }
 for name, target in targets.items():
     phases = [objects[key] for key in target["buildPhases"]]

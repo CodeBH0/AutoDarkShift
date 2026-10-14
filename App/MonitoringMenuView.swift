@@ -59,7 +59,7 @@ struct MonitoringMenuView: View {
                     Text("暂未取得运行详情")
                 }
                 Button("查询监听状态") { controller.queryMonitoring() }
-                    .disabled(controller.busy || (!controller.messageBusinessEnabled && !controller.canReadMonitoring))
+                    .disabled(controller.busy || !controller.canQueryDisplayedMonitoring)
                 if controller.busy { ProgressView("处理中") }
             }
             ControllerFeedbackView(controller: controller)

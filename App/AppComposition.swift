@@ -78,10 +78,9 @@ import UIKit
         if let monitoring { client = monitoring } else { client = vpn }
         let messageMonitoring: MonitoringHostCoordinator?
         let messageStore: SharedStore?
-        let businesses: ExclusiveMonitoringBusiness?
         let messageSetupError: String?
         do {
-            guard let storage else { throw ProjectError.message(storageError ?? "配置存储不可用。") }
+            guard storage != nil else { throw ProjectError.message(storageError ?? "配置存储不可用。") }
             let local = try RuntimeStoreSelection.localStore(directoryName: "MessageMonitoring")
             let saved = try local.configuration(defaultValue: MonitorConfiguration(isEnabled: false))
             try local.saveConfiguration(saved)
@@ -112,22 +111,78 @@ import UIKit
             messageHost = coordinator
             messageMonitoring = coordinator
             messageStore = local
-            businesses = ExclusiveMonitoringBusiness(standard: client, standardStore: storage.store,
-                message: coordinator, messageStore: local, preflightMessage: {
-                    guard #available(iOS 26.0, *) else {
-                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
-                    }
-                })
             messageSetupError = nil
         } catch {
-            messageMonitoring = nil; messageStore = nil; businesses = nil
+            messageMonitoring = nil; messageStore = nil
             messageSetupError = describeError(error)
             record("message_monitor_setup_failed", ["error": describeError(error)])
         }
+        let backBoardMonitoring: MonitoringHostCoordinator?
+        let backBoardStore: SharedStore?
+        let backBoardSetupError: String?
+        let probeRecord: @Sendable (String, [String: String]) -> Void = { event, fields in
+            record(event, fields.merging(["business": "backboard", "api": BackBoardBrightnessProbe.symbol,
+                                         "samplingMode": "backboard_poll_only"]) { _, new in new })
+        }
+        do {
+            let local = try RuntimeStoreSelection.localStore(directoryName: "BackBoardMonitoring")
+            try local.saveConfiguration(try local.configuration(defaultValue: MonitorConfiguration(isEnabled: false)))
+            weak var probeHost: MonitoringHostCoordinator?
+            let probeContext: @MainActor () -> [String: String] = {
+                let snapshot = probeHost?.localRuntimeSnapshot
+                let fields: [String: String] = [
+                    "business": "backboard", "api": BackBoardBrightnessProbe.symbol,
+                    "samplingMode": "backboard_poll_only", "listenerHost": "app",
+                    "runtimeInstanceID": snapshot?.instanceID ?? "none",
+                    "runtimePhase": snapshot?.phase.rawValue ?? "none",
+                    "pollInterval": snapshot?.activePollInterval.map { String($0) } ?? "none",
+                    "heartbeatAt": snapshot?.heartbeatAt?.ISO8601Format() ?? "none",
+                    "lastPollAt": snapshot?.lastPollAt?.ISO8601Format() ?? "none"
+                ]
+                return context().merging(fields) { _, new in new }
+            }
+            let coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState() },
+                configurationStore: local, localStore: local, makeRuntime: {
+                    try BackBoardBrightnessProbe.requireAvailable()
+                    let scheduler = DispatchPollingScheduler(record: probeRecord, context: probeContext)
+                    return try SwitchMonitor(store: local,
+                        sampler: BackBoardBrightnessSampler(scheduler: scheduler,
+                            reference: { Double(UIScreen.main.brightness) }, record: probeRecord, context: probeContext),
+                        notifications: LocalModeNotificationSink(), diagnostic: { detail in
+                            probeRecord("backboard_monitor_storage_error", ["error": detail])
+                        }, diagnosticContext: probeContext)
+                }, exportLocal: { stream in
+                    String(decoding: try local.exportData(metadata: ["scope": "backboard_monitor", "business": "backboard",
+                        "host": "app", "api": BackBoardBrightnessProbe.symbol, "samplingMode": "backboard_poll_only"],
+                        stream: stream, includeProviderCache: false), as: UTF8.self)
+                }, record: probeRecord, context: probeContext)
+            probeHost = coordinator
+            backBoardMonitoring = coordinator
+            backBoardStore = local
+            backBoardSetupError = nil
+        } catch {
+            backBoardMonitoring = nil; backBoardStore = nil
+            backBoardSetupError = describeError(error)
+            probeRecord("backboard_monitor_setup_failed", ["error": describeError(error)])
+        }
+        let businesses: ExclusiveMonitoringBusiness?
+        if let storage, let messageMonitoring, let messageStore {
+            businesses = ExclusiveMonitoringBusiness(standard: client, standardStore: storage.store,
+                message: messageMonitoring, messageStore: messageStore, preflightMessage: {
+                    guard #available(iOS 26.0, *) else {
+                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
+                    }
+                }, backBoard: backBoardMonitoring, backBoardStore: backBoardStore, preflightBackBoard: {
+                    probeRecord("backboard_api_load", BackBoardBrightnessProbe.availabilityFields)
+                    try BackBoardBrightnessProbe.requireAvailable()
+                })
+        } else { businesses = nil }
         return AppController(keepAlive: vpn, monitoring: client, storage: storage,
                              storageError: storageError, diagnostics: diagnostics, record: record,
                              keepAliveManager: manager, hostCoordinator: monitoring, pipService: pip,
                              messageCoordinator: messageMonitoring, messageStore: messageStore,
-                             businesses: businesses, messageSetupError: messageSetupError)
+                             businesses: businesses, messageSetupError: messageSetupError,
+                             backBoardCoordinator: backBoardMonitoring, backBoardStore: backBoardStore,
+                             backBoardSetupError: backBoardSetupError)
     }
 }

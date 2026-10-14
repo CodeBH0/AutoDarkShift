@@ -4,6 +4,8 @@
 当前使用 VPN 的 Packet Tunnel 进程运行保活，监听读取亮度并提交 `dark` / `light` 本地通知。外部快捷指令负责切换系统外观。
 全程agent coding，一点人工的成分都没有。
 
+1.0.3 / build 2 增加“BackBoard 探针监听”，与原监听、亮度消息监听互斥。探针定时读取 `BKSDisplayBrightnessGetCurrent`，后台测试需开启 PiP 或 Location 保活；运行 / Boost 日志均可导出。接入与测试说明见 [BACKBOARD_PROBE.md](docs/BACKBOARD_PROBE.md)，真实后台效果待设备测试。
+
 ## 安装
 
 ### 使用预编译 IPA

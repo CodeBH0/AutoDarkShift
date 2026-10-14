@@ -11,6 +11,9 @@ final class AppController: ObservableObject {
     @Published private(set) var messageBusinessEnabled = false
     @Published private(set) var messageSnapshot: RuntimeSnapshot?
     private var messageConfiguration = MonitorConfiguration(isEnabled: false)
+    @Published private(set) var backBoardBusinessEnabled = false
+    @Published private(set) var backBoardSnapshot: RuntimeSnapshot?
+    private var backBoardConfiguration = MonitorConfiguration(isEnabled: false)
     @Published private(set) var keepAliveEntries: [KeepAliveEntry] = []
     let pipService: PiPKeepAliveService?
     @Published private(set) var keepAliveState = KeepAliveState()
@@ -38,6 +41,8 @@ final class AppController: ObservableObject {
     private let hostCoordinator: MonitoringHostCoordinator?
     private let messageCoordinator: MonitoringHostCoordinator?
     private let messageStore: SharedStore?
+    private let backBoardCoordinator: MonitoringHostCoordinator?
+    private let backBoardStore: SharedStore?
     private let businesses: ExclusiveMonitoringBusiness?
     private var businessReady = false
     private var businessSwitching = false
@@ -65,7 +70,9 @@ final class AppController: ObservableObject {
          keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
          pipService: PiPKeepAliveService? = nil,
          messageCoordinator: MonitoringHostCoordinator? = nil, messageStore: SharedStore? = nil,
-         businesses: ExclusiveMonitoringBusiness? = nil, messageSetupError: String? = nil) {
+         businesses: ExclusiveMonitoringBusiness? = nil, messageSetupError: String? = nil,
+         backBoardCoordinator: MonitoringHostCoordinator? = nil, backBoardStore: SharedStore? = nil,
+         backBoardSetupError: String? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
@@ -74,6 +81,8 @@ final class AppController: ObservableObject {
         self.hostCoordinator = hostCoordinator
         self.messageCoordinator = messageCoordinator
         self.messageStore = messageStore
+        self.backBoardCoordinator = backBoardCoordinator
+        self.backBoardStore = backBoardStore
         self.businesses = businesses
         self.pipService = pipService
         self.store = storage?.store
@@ -86,13 +95,16 @@ final class AppController: ObservableObject {
         do {
             if let store { configuration = try store.configuration(); snapshot = try store.snapshot() }
             if let messageStore { messageConfiguration = try messageStore.configuration() }
-            messageBusinessEnabled = messageConfiguration.isEnabled
+            if let backBoardStore { backBoardConfiguration = try backBoardStore.configuration() }
+            backBoardBusinessEnabled = backBoardConfiguration.isEnabled
+            messageBusinessEnabled = messageConfiguration.isEnabled && !backBoardBusinessEnabled
         } catch { self.storageError = describeError(error) }
         if let messageSetupError { self.appError = "亮度消息业务未就绪：\(messageSetupError)" }
+        if let backBoardSetupError { self.appError = "BackBoard 探针未就绪：\(backBoardSetupError)" }
         record("app_launch", ["storageMode": self.storageMode.rawValue,
                               "identity": String(describing: RuntimeIdentity.installed(storageMode: self.storageMode)),
                               "storageError": self.storageError ?? "none", "storageFallbackReason": fallbackReason ?? "none"])
-        autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled
+        autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled && !backBoardBusinessEnabled
         busy = true
         businessSwitching = true
         updateSwitchState()
@@ -145,17 +157,29 @@ final class AppController: ObservableObject {
         if #available(iOS 26.0, *) { return businesses != nil }
         return false
     }
-    var displayedSnapshot: RuntimeSnapshot? { messageBusinessEnabled ? messageSnapshot : snapshot }
+    var backBoardBusinessAvailable: Bool { businesses != nil && backBoardCoordinator != nil }
+    private var selectedLocalCoordinator: MonitoringHostCoordinator? {
+        if backBoardBusinessEnabled { return backBoardCoordinator }
+        return messageBusinessEnabled ? messageCoordinator : nil
+    }
+    var canQueryDisplayedMonitoring: Bool { selectedLocalCoordinator != nil || canReadMonitoring }
+    var displayedSnapshot: RuntimeSnapshot? {
+        if backBoardBusinessEnabled { return backBoardSnapshot }
+        return messageBusinessEnabled ? messageSnapshot : snapshot
+    }
     var displayedRuntimeConfirmed: Bool {
-        messageBusinessEnabled ? messageCoordinator?.localRuntimeSnapshot != nil : runtimeConfirmed
+        if let selectedLocalCoordinator { return selectedLocalCoordinator.localRuntimeSnapshot != nil }
+        return runtimeConfirmed
     }
     var displayedConfigurationConfirmed: Bool {
-        let expected = messageBusinessEnabled ? messageConfiguration : configuration
+        let expected = backBoardBusinessEnabled ? backBoardConfiguration :
+            messageBusinessEnabled ? messageConfiguration : configuration
         return displayedRuntimeConfirmed && displayedSnapshot?.appliedConfiguration == expected &&
             expected.cooldown == configuration.cooldown
     }
     var activeBusinessText: String {
-        messageBusinessEnabled ? "亮度消息" : autoDarkShiftEnabled ? "原监听" : "均已关闭"
+        backBoardBusinessEnabled ? "BackBoard 探针" :
+            messageBusinessEnabled ? "亮度消息" : autoDarkShiftEnabled ? "原监听" : "均已关闭"
     }
     var canReadMonitoring: Bool { hostCoordinator?.canMessage ?? keepAliveState.phase.canMessage }
     private var usesVPNMonitoring: Bool { hostCoordinator?.usesVPN ?? true }
@@ -218,20 +242,27 @@ final class AppController: ObservableObject {
     }
 
     var heartbeatAge: TimeInterval? {
-        snapshot?.heartbeatAt.map { max(0, now.timeIntervalSince($0)) }
+        displayedSnapshot?.heartbeatAt.map { max(0, now.timeIntervalSince($0)) }
     }
     var heartbeatLimit: TimeInterval {
-        max(5, (snapshot?.activePollInterval ?? BrightnessTrendModel.normalPollInterval) * 3)
+        max(5, (displayedSnapshot?.activePollInterval ?? BrightnessTrendModel.normalPollInterval) * 3)
     }
     var samplingIsLive: Bool {
         if messageBusinessEnabled {
             return messageCoordinator?.localRuntimeSnapshot?.phase == .running &&
                 messageSnapshot?.appliedConfiguration.isEnabled == true
         }
-        guard let snapshot, snapshot.phase == .running, let age = heartbeatAge else { return false }
-        return age <= heartbeatLimit && canReadMonitoring && runtimeConfirmed && snapshot.appliedConfiguration.isEnabled
+        guard let snapshot = displayedSnapshot, snapshot.phase == .running, let age = heartbeatAge else { return false }
+        return age <= heartbeatLimit && canQueryDisplayedMonitoring && displayedRuntimeConfirmed && snapshot.appliedConfiguration.isEnabled
     }
     var samplingText: String {
+        if backBoardBusinessEnabled {
+            guard let current = backBoardCoordinator?.localRuntimeSnapshot else { return "正在准备 BackBoard 探针" }
+            if current.phase == .sleeping { return "BackBoard 探针睡眠中" }
+            if let error = current.lastError { return "BackBoard 探针错误：\(error)" }
+            if samplingIsLive { return "BackBoard 探针正在读取（心跳有效）" }
+            return "BackBoard 探针等待实际读数，阶段：\(current.phase.rawValue)"
+        }
         if messageBusinessEnabled {
             guard let current = messageCoordinator?.localRuntimeSnapshot else { return "正在准备亮度消息监听" }
             if current.phase == .sleeping { return "亮度消息监听睡眠中" }
@@ -278,6 +309,7 @@ final class AppController: ObservableObject {
                 self.now = Date()
                 self.refreshSnapshot()
                 self.messageSnapshot = self.messageCoordinator?.localRuntimeSnapshot
+                self.backBoardSnapshot = self.backBoardCoordinator?.localRuntimeSnapshot
                 self.keepAliveManager.updateStates()
                 if self.storageMode == .localIPC || !self.usesVPNMonitoring ||
                     self.snapshot?.appliedConfiguration.revision != self.configuration.revision { self.scheduleQuery() }
@@ -323,12 +355,13 @@ final class AppController: ObservableObject {
         let policy = "\(sceneState):\(allowed):\(pipPhase):\(locationPhase):\(hostCoordinator?.hostName ?? "vpn")"
         if policy != lastExecutionPolicy {
             lastExecutionPolicy = policy
-            let runtime = hostCoordinator?.localRuntimeSnapshot
+            let runtime = selectedLocalCoordinator?.localRuntimeSnapshot ?? hostCoordinator?.localRuntimeSnapshot
             record("app_execution_allowed", [
                 "source": "app_controller", "sceneState": sceneState,
                 "appForeground": String(appIsForeground), "pipPhase": pipPhase,
                 "locationPhase": locationPhase, "allowed": String(allowed),
-                "listenerHost": hostCoordinator?.usesVPN == false ? "app" : "vpn",
+                "business": activeBusinessText,
+                "listenerHost": selectedLocalCoordinator != nil || hostCoordinator?.usesVPN == false ? "app" : "vpn",
                 "runtimePhase": runtime?.phase.rawValue ?? "none",
                 "pollInterval": runtime?.activePollInterval.map { String($0) } ?? "none",
                 "heartbeatAt": runtime?.heartbeatAt?.ISO8601Format() ?? "none",
@@ -337,6 +370,7 @@ final class AppController: ObservableObject {
         }
         hostCoordinator?.setAppExecutionAllowed(allowed)
         messageCoordinator?.setAppExecutionAllowed(allowed)
+        backBoardCoordinator?.setAppExecutionAllowed(allowed)
     }
 
     func setKeepAliveEnabled(_ enabled: Bool, method: KeepAliveMethod = .vpn) {
@@ -441,11 +475,16 @@ final class AppController: ObservableObject {
         switchBusiness(enabled ? .message : nil)
     }
 
+    func setBackBoardBusinessEnabled(_ enabled: Bool) {
+        guard enabled != backBoardBusinessEnabled else { return }
+        switchBusiness(enabled ? .backBoard : nil)
+    }
+
     private func switchBusiness(_ selection: MonitoringBusiness?) {
         guard !businessControlsDisabled else { return }
         run {
             guard let businesses = self.businesses else {
-                throw ProjectError.message("亮度消息业务未就绪，请查看错误信息。")
+                throw ProjectError.message("监听业务未就绪，请查看错误信息。")
             }
             self.businessSwitching = true
             defer {
@@ -470,8 +509,12 @@ final class AppController: ObservableObject {
                 throw ProjectError.message("业务切换未完成，请核对停用和启动的确认结果后重试。\(describeError(error))")
             }
             if selection == .standard, let reply { self.acceptReply(reply) }
-            self.message = selection == .message ? "亮度消息业务已开启，原监听已停止。" :
-                selection == .standard ? "原监听已开启，亮度消息业务已停止。" : "两条业务已关闭，保活方案继续运行。"
+            switch selection {
+            case .standard: self.message = "原监听已开启，其他监听已停止。"
+            case .message: self.message = "亮度消息监听已开启，其他监听已停止。"
+            case .backBoard: self.message = "BackBoard 探针已开启，其他监听已停止。"
+            case nil: self.message = "全部监听已关闭，保活方案继续运行。"
+            }
             self.record("monitor_business_selected", ["business": selection?.rawValue ?? "none"])
         }
     }
@@ -480,9 +523,12 @@ final class AppController: ObservableObject {
         do {
             if let store { configuration = try store.configuration() }
             if let messageStore { messageConfiguration = try messageStore.configuration() }
-            messageBusinessEnabled = messageConfiguration.isEnabled
-            autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled
+            if let backBoardStore { backBoardConfiguration = try backBoardStore.configuration() }
+            backBoardBusinessEnabled = backBoardConfiguration.isEnabled
+            messageBusinessEnabled = messageConfiguration.isEnabled && !backBoardBusinessEnabled
+            autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled && !backBoardBusinessEnabled
             messageSnapshot = messageCoordinator?.localRuntimeSnapshot
+            backBoardSnapshot = backBoardCoordinator?.localRuntimeSnapshot
         } catch {
             storageError = describeError(error)
             record("business_configuration_read_failed", ["error": describeError(error)])
@@ -581,6 +627,20 @@ final class AppController: ObservableObject {
                     self.messageSnapshot = reply.snapshot
                 }
             }
+            if let backBoardStore = self.backBoardStore {
+                var probeConfiguration = try backBoardStore.configuration()
+                probeConfiguration.cooldown = saved.cooldown
+                probeConfiguration.revision = UUID().uuidString
+                try backBoardStore.saveConfiguration(probeConfiguration.validated())
+                self.backBoardConfiguration = probeConfiguration
+                if probeConfiguration.isEnabled, let coordinator = self.backBoardCoordinator {
+                    let reply = try await coordinator.applyConfiguration(probeConfiguration)
+                    guard reply.success, reply.appliedRevision == probeConfiguration.revision else {
+                        throw ProjectError.message("BackBoard 探针未确认应用配置：\(reply.message)")
+                    }
+                    self.backBoardSnapshot = reply.snapshot
+                }
+            }
             self.keepAlive.updateState()
             if self.canReadMonitoring {
                 let reply: MonitorReply
@@ -608,6 +668,13 @@ final class AppController: ObservableObject {
 
     func queryMonitoring() {
         run {
+            if self.backBoardBusinessEnabled, let coordinator = self.backBoardCoordinator {
+                let reply = try await coordinator.queryStatus()
+                guard reply.success else { throw ProjectError.message(reply.message) }
+                self.backBoardSnapshot = reply.snapshot
+                self.message = reply.message
+                return
+            }
             if self.messageBusinessEnabled, let coordinator = self.messageCoordinator {
                 let reply = try await coordinator.queryStatus()
                 guard reply.success else { throw ProjectError.message(reply.message) }
@@ -679,9 +746,11 @@ final class AppController: ObservableObject {
                 "storageMode": self.storageMode.rawValue,
                 "storageFallbackReason": self.fallbackReason ?? "none",
                 "appGroupIdentifier": RuntimeIdentity.installed().appGroupIdentifier,
-                "monitorHost": self.messageBusinessEnabled ? "App 亮度消息" : self.hostCoordinator?.hostName ?? "VPN 扩展",
+                "monitorHost": self.backBoardBusinessEnabled ? "App BackBoard 探针" :
+                    self.messageBusinessEnabled ? "App 亮度消息" : self.hostCoordinator?.hostName ?? "VPN 扩展",
                 "autoDarkShiftEnabled": String(self.autoDarkShiftEnabled),
                 "messageBusinessEnabled": String(self.messageBusinessEnabled),
+                "backBoardBusinessEnabled": String(self.backBoardBusinessEnabled),
                 "runtimeConfirmed": String(self.displayedRuntimeConfirmed), "runtimeError": self.runtimeError ?? "none",
                 "readbackAvailability": self.readback.availability.rawValue,
                 "readbackDetail": self.readback.issue ?? "none",
@@ -711,6 +780,10 @@ final class AppController: ObservableObject {
             if let coordinator = self.messageCoordinator {
                 do { data.append(Data(try coordinator.localDiagnostics(stream: stream).utf8)) }
                 catch { try self.appendExportEvent("message_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
+            }
+            if let coordinator = self.backBoardCoordinator {
+                do { data.append(Data(try coordinator.localDiagnostics(stream: stream).utf8)) }
+                catch { try self.appendExportEvent("backboard_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
             }
             var stateData = Data()
             if stream == .boost, self.storageMode == .appGroup, self.usesVPNMonitoring {

@@ -36,9 +36,17 @@ struct DashboardView: View {
                     set: { controller.setMessageBusinessEnabled($0) }
                 ))
                 .disabled(controller.businessControlsDisabled || !controller.messageBusinessAvailable)
-                Text(controller.messageBusinessAvailable ? "两条业务互斥，开启一条会先停止另一条。" :
-                    "亮度消息监听需要 iOS 26 或更新版本。")
+                Toggle("BackBoard 探针监听", isOn: Binding(
+                    get: { controller.backBoardBusinessEnabled },
+                    set: { controller.setBackBoardBusinessEnabled($0) }
+                ))
+                .disabled(controller.businessControlsDisabled || !controller.backBoardBusinessAvailable)
+                Text("三条监听互斥，开启一条会先停止其他监听。BackBoard 探针在后台需要开启 PiP 或 Location 保活。")
                     .font(.caption).foregroundStyle(.secondary)
+                if !controller.messageBusinessAvailable {
+                    Text("亮度消息监听需要 iOS 26 或更新版本。")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
                 NavigationLink {
                     MonitoringMenuView(controller: controller)

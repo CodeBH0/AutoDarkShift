@@ -1,4 +1,23 @@
-# 验证记录（当前源码 1.0.3 / build 1）
+# 验证记录（当前源码 1.0.3 / build 2）
+
+## 2026-10-14 BackBoard 探针与 IPA（1.0.3 / build 2）
+
+基线为 `422d04e`（build 1）。新增独立 App 内 `BKSDisplayBrightnessGetCurrent` 定时读取，与原监听和类型化消息监听互斥；复用原模型与通知，并加入独立配置、双日志及 UIKit 诊断对照。框架按需动态加载，未选择探针时不加载；后台沿用实际 PiP / Location 执行许可。实现和设备步骤见 [BACKBOARD_PROBE.md](BACKBOARD_PROBE.md)。
+
+| 检查 | 本轮实际结果 |
+| --- | --- |
+| 工程与空白检查 | 通过：216 个工程对象、61 个工程文件、3 个 target、4 个 plist、两个共享 Scheme；git diff --check、打包脚本语法通过 |
+| core checks | 通过：61 项生产场景，包含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 通过：78 个方法、0 失败；新增 10 项覆盖 BackBoard 与另外两路互斥、旧业务拒绝停用、等待探针通知结算、启动冲突、加载失败不启用、输入不回退、非法值、旧 tick 拒绝与动态变频；原未选择业务不创建运行时的测试也覆盖探针 |
+| iPhone arm64 Release | 通过：Xcode 26.3 / iPhoneOS 26.2 SDK，主 App 与 PacketTunnel 同为 1.0.3 / build 2、最低 iOS 17 |
+| IPA 独立核对 | 通过：ZIP CRC、SHA-256、双组件版本与 arm64；App 二进制包含 getter 与探针诊断，扩展不包含该 getter；无 BackBoardServices 静态链接依赖 |
+| 大小与 SHA-256 | 998368 字节；`d396dc52f545f69c35eb722fc1ad6760adc75b80e4b28691dd97f9d44076a0d7` |
+| build 1 保留 | 通过：旧 IPA SHA-256 与本轮修改前一致；源码基线归档保留在忽略的验证目录 |
+| 设备 API 可用性、后台读数新鲜度、锁屏与通知 / 外观效果 | 未执行；按 DEVICE_ACCEPTANCE 第 16 节分别记录 |
+
+首次 core / XCTest 在沙箱中无法监听 127.0.0.1，失败记录保留；最终在允许本机通信的环境完整重跑通过，没有跳过用例。Xcode 的默认工作区缓存写入受限，打包脚本已使用显式 generic iOS 目标、项目内 DerivedData 和模块缓存；无需安装平台或模拟器。诊断上下文拆为有明确类型的字典后编译通过。编译过程中仍有历史 VPN 的 Swift 并发警告，未改变保活逻辑。
+
+按用户明确指定，构建保留 **build 2**。首次常规打包已经预留该编号，缓存受限时尚未生成 IPA；修复后在同一预留目录完成编译，再执行原脚本的打包部分，没有重新递增编号或覆盖已有 IPA。最终产物为 `build/AutoDarkShift-1.0.3-build2-resign.ipa`，对应 `.ipa.sha256`。双组件构建和独立核对位于 `build/1.0.3/build2/unsigned-build.log`、`ipa-verification.json`；测试、失败尝试和完成打包记录位于 `build/validation-backboard-20261014/`。所有 IPA、日志和中间文件保持忽略，不进入工程或 Git 提交。
 
 ## 2026-10-04 新环境编译与 IPA（1.0.3 / build 1）
 

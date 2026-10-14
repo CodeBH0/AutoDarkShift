@@ -3,42 +3,47 @@ import Foundation
 enum MonitoringBusiness: String, Codable, Equatable {
     case standard
     case message
+    case backBoard = "backboard"
 }
 
-/// Serializes the two businesses and enables one only after the other reports
+/// Serializes the businesses and enables one only after every other reports
 /// disabled sampling and terminal notification state.
 @MainActor final class ExclusiveMonitoringBusiness {
-    private let standard: any MonitoringClient
-    private let standardStore: any MonitorStore
-    private let message: any MonitoringClient
-    private let messageStore: any MonitorStore
-    private let preflightMessage: () throws -> Void
+    private struct Endpoint {
+        let business: MonitoringBusiness
+        let client: any MonitoringClient
+        let store: any MonitorStore
+        let preflight: () throws -> Void
+    }
+    private let endpoints: [Endpoint]
     private var operation: Task<MonitorReply?, Error>?
     private var operationID: UUID?
 
     init(standard: any MonitoringClient, standardStore: any MonitorStore,
          message: any MonitoringClient, messageStore: any MonitorStore,
-         preflightMessage: @escaping () throws -> Void = {}) {
-        self.standard = standard
-        self.standardStore = standardStore
-        self.message = message
-        self.messageStore = messageStore
-        self.preflightMessage = preflightMessage
+         preflightMessage: @escaping () throws -> Void = {},
+         backBoard: (any MonitoringClient)? = nil, backBoardStore: (any MonitorStore)? = nil,
+         preflightBackBoard: @escaping () throws -> Void = {}) {
+        var endpoints = [Endpoint(business: .standard, client: standard, store: standardStore, preflight: {}),
+                         Endpoint(business: .message, client: message, store: messageStore, preflight: preflightMessage)]
+        if let backBoard, let backBoardStore {
+            endpoints.append(Endpoint(business: .backBoard, client: backBoard, store: backBoardStore,
+                                      preflight: preflightBackBoard))
+        }
+        self.endpoints = endpoints
     }
 
     func select(_ business: MonitoringBusiness?) async throws -> MonitorReply? {
         try await enqueue { try await self.performSelect(business) }
     }
 
-    /// Restores the persisted selection. If both stores claim to be enabled,
-    /// message wins and standard is durably disabled before contacting either host.
+    /// Restores the persisted selection; conflicts prefer BackBoard, then message.
+    /// performSelect durably disables all stores before contacting any host.
     func resumeSelected() async throws -> MonitorReply? {
         try await enqueue {
-            let standardEnabled = try self.standardStore.configuration().isEnabled
-            let messageEnabled = try self.messageStore.configuration().isEnabled
-            let selected: MonitoringBusiness? = messageEnabled ? .message : (standardEnabled ? .standard : nil)
-            if standardEnabled && messageEnabled {
-                try self.save(self.disabledConfiguration(in: self.standardStore), to: self.standardStore)
+            var selected: MonitoringBusiness?
+            for endpoint in self.endpoints {
+                if try endpoint.store.configuration().isEnabled { selected = endpoint.business }
             }
             return try await self.performSelect(selected)
         }
@@ -65,23 +70,26 @@ enum MonitoringBusiness: String, Codable, Equatable {
     private func performSelect(_ business: MonitoringBusiness?) async throws -> MonitorReply? {
         // Establish the fail-closed state in persistent storage before any query
         // can reconcile and create a host. Save standard first for conflict recovery.
-        let standardDisabled = try disabledConfiguration(in: standardStore)
-        let messageDisabled = try disabledConfiguration(in: messageStore)
-        try save(standardDisabled, to: standardStore)
-        try save(messageDisabled, to: messageStore)
+        let disabled = try endpoints.map { try disabledConfiguration(in: $0.store) }
+        for (endpoint, configuration) in zip(endpoints, disabled) {
+            try save(configuration, to: endpoint.store)
+        }
 
         var stoppedReply: MonitorReply?
-        stoppedReply = try await stopAndConfirm(client: standard, store: standardStore,
-                                                 disabled: standardDisabled) ?? stoppedReply
-        stoppedReply = try await stopAndConfirm(client: message, store: messageStore,
-                                                 disabled: messageDisabled) ?? stoppedReply
+        for (endpoint, configuration) in zip(endpoints, disabled) {
+            stoppedReply = try await stopAndConfirm(client: endpoint.client, store: endpoint.store,
+                                                     disabled: configuration) ?? stoppedReply
+        }
 
         guard let business else { return stoppedReply }
-        if business == .message { try preflightMessage() }
-        let targetStore = store(for: business)
-        let targetClient = client(for: business)
+        guard let target = endpoints.first(where: { $0.business == business }) else {
+            throw ProjectError.message("所选监听业务未注册。")
+        }
+        try target.preflight()
+        let targetStore = target.store
+        let targetClient = target.client
         var enabled = try targetStore.configuration()
-        enabled.cooldown = try standardStore.configuration().cooldown
+        enabled.cooldown = try endpoints[0].store.configuration().cooldown
         enabled.isEnabled = true
         enabled.revision = UUID().uuidString
         try targetStore.saveConfiguration(try enabled.validated())
@@ -169,11 +177,4 @@ enum MonitoringBusiness: String, Codable, Equatable {
         try store.saveHistory(history)
     }
 
-    private func client(for business: MonitoringBusiness) -> any MonitoringClient {
-        business == .standard ? standard : message
-    }
-
-    private func store(for business: MonitoringBusiness) -> any MonitorStore {
-        business == .standard ? standardStore : messageStore
-    }
 }

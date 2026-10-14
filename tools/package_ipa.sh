@@ -96,13 +96,16 @@ mkdir -p "$(dirname "$BUILD_ROOT")"
 mkdir "$BUILD_ROOT"
 echo "Building $APP_VERSION / build $APP_BUILD ($BUILD_MODE); log: $BUILD_ROOT/unsigned-build.log"
 if [[ "$BUILD_MODE" == direct-sdk ]]; then
-    # Explicit SDK/target builds avoid destination discovery and never install a platform.
+    # Explicit SDK/generic-device builds never install a platform. Keep the entire
+    # workspace arena and compiler caches inside the reserved build directory.
     # This mode produces the same Release app/extension, but no .xcarchive.
     BUILT_APP="$BUILD_ROOT/Products/Release-iphoneos/AutoDarkShift.app"
     if ! /usr/bin/xcodebuild -quiet \
-        -project AutoDarkShift.xcodeproj -target AutoDarkShift \
+        -project AutoDarkShift.xcodeproj -scheme AutoDarkShift -destination 'generic/platform=iOS' \
         -configuration Release -sdk iphoneos \
+        -derivedDataPath "$BUILD_ROOT/DerivedData" \
         SYMROOT="$BUILD_ROOT/Products" OBJROOT="$BUILD_ROOT/Intermediates" \
+        CLANG_MODULE_CACHE_PATH="$BUILD_ROOT/ModuleCache" \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
         MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
         ARCHS=arm64 build >"$BUILD_ROOT/unsigned-build.log" 2>&1; then
@@ -115,6 +118,7 @@ else
         -project AutoDarkShift.xcodeproj -scheme AutoDarkShift \
         -configuration Release -sdk iphoneos -destination 'generic/platform=iOS' \
         -derivedDataPath "$BUILD_ROOT/DerivedData" -archivePath "$ARCHIVE_PATH" \
+        CLANG_MODULE_CACHE_PATH="$BUILD_ROOT/ModuleCache" \
         CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY= \
         MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$APP_BUILD" \
         ARCHS=arm64 archive >"$BUILD_ROOT/unsigned-build.log" 2>&1; then

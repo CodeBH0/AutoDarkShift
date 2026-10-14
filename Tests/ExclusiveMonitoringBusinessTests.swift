@@ -102,9 +102,11 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         let events = EventList()
         let standardStore = BusinessStore(name: "standardStore", events: events)
         let messageStore = BusinessStore(name: "messageStore", events: events)
+        let probeStore = BusinessStore(name: "probeStore", events: events)
         let vpn = BusinessClient(name: "vpn", phase: .stopped, events: events)
         var standardStarts = 0
         var messageFactoryCalls = 0
+        var probeFactoryCalls = 0
         let standardHost = MonitoringHostCoordinator(vpn: vpn,
             vpnState: { KeepAliveState(phase: .stopped) },
             configurationStore: standardStore, localStore: standardStore,
@@ -120,12 +122,18 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
                 throw ProjectError.message("message API unavailable")
             }, exportLocal: { _ in "" })
         let coordinator = ExclusiveMonitoringBusiness(standard: standardHost, standardStore: standardStore,
-            message: messageHost, messageStore: messageStore)
+            message: messageHost, messageStore: messageStore,
+            backBoard: MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState(phase: .stopped) },
+                configurationStore: probeStore, localStore: probeStore, makeRuntime: {
+                    probeFactoryCalls += 1
+                    throw ProjectError.message("BackBoard API unavailable")
+                }, exportLocal: { _ in "" }), backBoardStore: probeStore)
 
         _ = try await coordinator.select(.standard)
 
         XCTAssertEqual(standardStarts, 1)
         XCTAssertEqual(messageFactoryCalls, 0)
+        XCTAssertEqual(probeFactoryCalls, 0)
         XCTAssertTrue(try standardStore.configuration().isEnabled)
         XCTAssertFalse(try messageStore.configuration().isEnabled)
     }
@@ -137,24 +145,95 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         }
         XCTAssertNotNil(client.resumeSubmission, "The switch did not reach the held notification callback.")
     }
+
+    @MainActor func testBackBoardSelectionDisablesBothExistingBusinessesBeforeStartingProbe() async throws {
+        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .running, registerBackBoard: true)
+        _ = try await fixture.coordinator.select(.backBoard)
+
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.backBoardStore.configuration().isEnabled)
+        XCTAssertFalse(fixture.standard.applied.isEnabled)
+        XCTAssertFalse(fixture.message.applied.isEnabled)
+        XCTAssertEqual(fixture.backBoard.enabledRequests, 1)
+    }
+
+    @MainActor func testUnconfirmedMessageStopPreventsProbeStart() async throws {
+        let fixture = BusinessFixture(standardPhase: .stopped, messagePhase: .running, registerBackBoard: true)
+        fixture.message.rejectDisable = true
+        do { _ = try await fixture.coordinator.select(.backBoard); XCTFail("Expected stop rejection") }
+        catch { }
+
+        XCTAssertEqual(fixture.backBoard.enabledRequests, 0)
+        XCTAssertFalse(try fixture.backBoardStore.configuration().isEnabled)
+    }
+
+    @MainActor func testLeavingProbeWaitsForItsNotificationResult() async throws {
+        let fixture = BusinessFixture(standardPhase: .stopped, messagePhase: .stopped, registerBackBoard: true)
+        _ = try await fixture.coordinator.select(.backBoard)
+        fixture.backBoard.holdSubmission = true
+        let switching = Task { try await fixture.coordinator.select(.standard) }
+        await waitForPendingSubmission(in: fixture.backBoard)
+        XCTAssertEqual(fixture.standard.enabledRequests, 0)
+        fixture.backBoard.resumeSubmission?()
+        _ = try await switching.value
+
+        XCTAssertEqual(fixture.standard.enabledRequests, 1)
+        XCTAssertFalse(try fixture.backBoardStore.configuration().isEnabled)
+        XCTAssertEqual(fixture.backBoardStore.savedHistory?.target, .dark)
+    }
+
+    @MainActor func testStartupConflictPrefersProbeAndDisablesAllBeforeQuery() async throws {
+        let fixture = BusinessFixture(standardPhase: .stopped, messagePhase: .stopped, registerBackBoard: true)
+        try fixture.backBoardStore.saveConfiguration(MonitorConfiguration(isEnabled: true))
+        _ = try await fixture.coordinator.resumeSelected()
+
+        XCTAssertEqual(fixture.standard.enabledRequests, 0)
+        XCTAssertEqual(fixture.message.enabledRequests, 0)
+        XCTAssertEqual(fixture.backBoard.enabledRequests, 1)
+        let firstQuery = try XCTUnwrap(fixture.events.values.firstIndex(where: { $0.hasSuffix(".query") }))
+        for name in ["standardStore", "messageStore", "backBoardStore"] {
+            XCTAssertLessThan(try XCTUnwrap(fixture.events.values.firstIndex(of: "\(name).disabled")), firstQuery)
+        }
+    }
+
+    @MainActor func testUnavailableProbePreflightLeavesAllBusinessesDisabled() async throws {
+        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .stopped, registerBackBoard: true,
+            preflightBackBoard: { throw ProjectError.message("dlsym unavailable") })
+        do { _ = try await fixture.coordinator.select(.backBoard); XCTFail("Expected unavailable API") }
+        catch { }
+
+        XCTAssertEqual(fixture.backBoard.enabledRequests, 0)
+        for store in [fixture.standardStore, fixture.messageStore, fixture.backBoardStore] {
+            XCTAssertFalse(try store.configuration().isEnabled)
+        }
+    }
 }
 
 @MainActor private final class BusinessFixture {
     let events: EventList
     let standardStore: BusinessStore
     let messageStore: BusinessStore
+    let backBoardStore: BusinessStore
     let standard: BusinessClient
     let message: BusinessClient
+    let backBoard: BusinessClient
     let coordinator: ExclusiveMonitoringBusiness
 
-    init(standardPhase: RuntimePhase, messagePhase: RuntimePhase) {
+    init(standardPhase: RuntimePhase, messagePhase: RuntimePhase, registerBackBoard: Bool = false,
+         preflightBackBoard: @escaping () throws -> Void = {}) {
         events = EventList()
         standardStore = BusinessStore(name: "standardStore", events: events)
         messageStore = BusinessStore(name: "messageStore", events: events)
+        backBoardStore = BusinessStore(name: "backBoardStore", events: events)
+        backBoardStore.config.isEnabled = false
         standard = BusinessClient(name: "standard", phase: standardPhase, events: events)
         message = BusinessClient(name: "message", phase: messagePhase, events: events)
+        backBoard = BusinessClient(name: "backBoard", phase: .stopped, events: events)
         coordinator = ExclusiveMonitoringBusiness(standard: standard, standardStore: standardStore,
-            message: message, messageStore: messageStore)
+            message: message, messageStore: messageStore,
+            backBoard: registerBackBoard ? backBoard : nil, backBoardStore: registerBackBoard ? backBoardStore : nil,
+            preflightBackBoard: preflightBackBoard)
     }
 }
 
