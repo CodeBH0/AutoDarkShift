@@ -2,7 +2,7 @@
 
 生产模型由 [数学模型 v2](models/MathModel-v2.md) 定义；[v1](models/MathModel-v1.md) 原文保留。屏幕亮度不是环境照度；本轮参数来自实测逻辑问题和数学不变量，未由带外观标签数据拟合。
 
-1.1.0 的 App 内监控路径复用本模型，不启动轮询；模型的频率建议不代表实际采样频率。首次样本基线、超过两秒的观测间断重置、通知冷却和去重继续使用；消息稀疏时可能仅重新建立基线，冷却后的重试需有新消息。本机验证见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，真机专项尚未执行；输入边界见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+1.1.0 / build 2 的 App 内监控只轮询 `BKSDisplayBrightnessGetCurrent`，重新启用本模型的 1 / 10 / 30 / 60 / 120 Hz 动态采样和完整 Boost；Packet Tunnel 保留 UIScreen 事件加轮询。两路输入共用 v2 评分、冷却、去重与五秒上下文 / 两秒稳定结束规则，固定进程严格互斥，切路径后从新观测基线开始。App 输入最低 iOS 17，不注册类型化亮度消息；无 getter 时明确失败，不制造输入或回退。输入边界见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。本机验证见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，当前 build 2 真机专项尚未执行。
 
 ## 分量与评分
 
@@ -43,4 +43,4 @@
 
 新运行快照 schemaVersion=3。旧快照可读，但旧 speed 使用 v1 含义，界面按版本区分。新 `filteredBrightness` 和 `projectedBrightness` 记录接受值/预测位置；旧快照可缺省。配置只保留 revision 和冷却，旧阈值/固定轮询/实验参数不参与。
 
-主 App/扩展共享版本与build，每次打包递增，通信继续校验身份。实际验证范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，真机行为按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 记录。
+主 App/扩展共享版本与 build；本轮固定为 1.1.0 / build 2，不继续迭代编号，通信继续校验身份。实际验证范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，真机行为按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 记录。

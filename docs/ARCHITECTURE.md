@@ -1,6 +1,6 @@
 # 保活与切换监听的架构边界（1.1.0）
 
-1.1.0 将监听固定为两条互斥路径：Packet Tunnel 在扩展进程使用原事件加动态轮询，App 内监控在主进程只使用 `UIScreen.BrightnessDidChangeMessage`。VPN、PiP、Location 是独立保活能力，可以同时开启；业务选择不会按 VPN 状态自动迁移进程。`silentAudio` 仅为枚举预留，没有注册服务、GUI 或实际音频播放。平台细节见 [KEEP_ALIVE.md](KEEP_ALIVE.md)，消息输入见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
+1.1.0 将监听固定为两条互斥路径：Packet Tunnel 在扩展进程使用原事件加动态轮询，App 内监控在主进程只轮询 `BKSDisplayBrightnessGetCurrent`。VPN、PiP、Location 是独立保活能力，可以同时开启；业务选择不会按 VPN 状态自动迁移进程。`silentAudio` 仅为枚举预留，没有注册服务、GUI 或实际音频播放。平台细节见 [KEEP_ALIVE.md](KEEP_ALIVE.md)，App 输入见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。
 
 ## 依赖关系
 
@@ -15,7 +15,7 @@ flowchart TD
     G[Location] --> E
     H[静音音频：未来适配器] -.-> E
     B --> I[VPN 进程采集器 / ScreenBrightnessSampler]
-    C --> J[App 进程采集器 / ScreenBrightnessMessageSampler]
+    C --> J[App 进程采集器 / BackBoardBrightnessSampler]
     I --> K[共享 SwitchMonitor 实现]
     J --> K
     K --> L[MathModel v2 + Boost]
@@ -28,7 +28,7 @@ flowchart TD
 | 通用保活 | `KeepAliveService`、`KeepAliveManager`、`KeepAliveSwitchControl` | Foundation 抽象，管理注册与独立生命周期，不依赖模型或监听存储 |
 | 业务管理 | `ExclusiveMonitoringBusiness` | 先持久化关闭两路，停止采样并等待已提交通知结算，再启用目标路径 |
 | 固定进程 | `MonitoringHostCoordinator` | 必须显式传入 `.packetTunnel` 或 `.app`；处理各自配置、运行与导出 |
-| 生产组合 | `AppComposition`、`PacketTunnelProvider` | 主 App 只创建消息采样器；扩展只创建原采样器 |
+| 生产组合 | `AppComposition`、`PacketTunnelProvider` | 主 App 只创建 BackBoard 纯轮询采样器；扩展只创建原采样器 |
 | 共用业务 | `SwitchMonitor`、MathModel v2、`BoostTraceRecorder` | 趋势、冷却、去重、通知及独立运行 / Boost 日志 |
 | 跨进程控制 | `MonitoringClient`、`MonitorControlEndpoint` | 配置确认、身份匹配、快照和两路日志；保留协议版本 3 |
 
@@ -36,17 +36,17 @@ flowchart TD
 
 Packet Tunnel 路径在 VPN 未连接时保存启用选择并等待连接，不能创建 App 采样器作为 fallback。连接后扩展应用该选择；断开后仍选择该路径并等待，不自动改成 App 内监控。VPN 正在启动、重连、断开或状态未知时，不能把未取得回复当作已停止。
 
-App 路径始终使用 `ScreenBrightnessMessageSampler`，仅 iOS 26 或更新系统可启用，`pollingEnabled: false`。VPN 的连接与断开不改变该进程或采样方式；即使 VPN 保活继续，选择 App 路径后扩展监听也须保持禁用。两条路径复用同一 v2 模型及 Boost 实现，各自保存配置、快照、成功历史和双日志。
+App 路径始终使用 `BackBoardBrightnessSampler`，最低 iOS 17，按 v2 模型启用 1 / 10 / 30 / 60 / 120 Hz 动态纯轮询。getter 在选择 App 时才 lazy 加载并预检；无符号明确失败，不造样本或心跳、不回退 UIScreen，诊断也不读取 UIKit 对照。PacketTunnel 不加载 BackBoard，继续 UIScreen 事件加轮询。VPN 的连接与断开不改变该进程或采样方式；即使 VPN 保活继续，选择 App 路径后扩展监听也须保持禁用。两条路径复用同一 v2 模型及 Boost 实现，各自保存配置、快照、成功历史和双日志。
 
-`ExclusiveMonitoringBusiness` 串行切换，先保存两路关闭配置，再确认没有采样和未结算的系统通知，最后保存并应用目标配置。未提交候选按生命周期取消；已调用系统通知接口的请求必须等待实际终态并保存历史。回复未知或停止超时则不启用目标。保存关闭意图不能证明未知运行已停用。旧配置两路均启用时优先保留 App 消息选择，先持久关闭 Packet Tunnel，再执行同样的交接。
+`ExclusiveMonitoringBusiness` 串行切换，先保存两路关闭配置，再确认没有采样和未结算的系统通知，最后保存并应用目标配置。未提交候选按生命周期取消；已调用系统通知接口的请求必须等待实际终态并保存历史。回复未知或停止超时则不启用目标。保存关闭意图不能证明未知运行已停用。旧配置两路均启用时优先保留 App 选择，先持久关闭 Packet Tunnel，再执行同样的交接。
 
-PiP 和 Location 的实际 active / reasserting 状态只授予 App 后台执行许可，与 VPN 状态无关。前台允许 App 路径执行；后台没有已确认 App 保活则 sleep，移除观察者并清空心跳，恢复许可后 wake 并从新基线开始。`.inactive` 保留此前许可，只有 `.background` 撤销前台许可。PiP 与 Location 同开仍只运行一个消息监听实例。关闭监听不会关闭任一保活服务。
+PiP 和 Location 的实际 active / reasserting 状态只授予 App 后台执行许可，与 VPN 状态无关。前台允许 App 路径执行；后台没有已确认 App 保活则 sleep，取消轮询并清空心跳，恢复许可后 wake 并从新基线开始。`.inactive` 保留此前许可，只有 `.background` 撤销前台许可。PiP 与 Location 同开仍只运行一个 BackBoard 监听实例。关闭监听不会关闭任一保活服务。
 
-当前频率、亮度与 S 来自真实监听快照；消息路径没有有效轮询频率。外观来自 App 可见的系统 ColorScheme，通知目标或成功历史不能证明其他 App 的实际外观。页面刷新和查询不生成样本、心跳或消息。
+当前频率、亮度与 S 来自真实监听快照；两条路径均报告实际轮询频率。外观来自 App 可见的系统 ColorScheme，通知目标或成功历史不能证明其他 App 的实际外观。页面刷新和查询不生成样本或心跳。
 
 ## 历史：App 轮询调度诊断（1.0.x build 17）
 
-本节保留旧 App 事件加轮询路径的实现与诊断依据；1.1.0 的生产 App 路径使用类型化消息，不创建此轮询调度器。
+本节保留旧 App 事件加轮询路径的实现与诊断依据；1.1.0 / build 2 的 App 路径重新使用 DispatchPollingScheduler 等待，但读取源改为 BackBoard，不注册 UIKit 亮度观察者。
 
 `didStart` 的实际 active 经 KeepAliveManager 回调到 AppController，再由宿主协调器按真实 runtime phase 唤醒同一个 SwitchMonitor。重复许可也能修正仍 sleeping 的实例；在途宿主交接完成后重新应用当前许可。`.inactive` 保留此前前后台许可，只有 `.background` 撤销前台许可，避免控制中心或 PiP 启动动画造成不必要的观测重置；UI 刷新在 active 场景恢复。
 
@@ -65,7 +65,7 @@ App 组合入口先探测共享目录的打开与读写，选择一种模式并�
 | `app-group-v1` | 共用 App Group；App 保存配置，扩展保存运行快照、成功历史和监听日志；消息确认实际应用版本 |
 | `local-ipc-v1` | AppRuntime / ProviderRuntime 分别位于各自私有容器；启动参数携带配置，运行时消息携带完整配置；App 缓存扩展返回的原始快照 |
 
-生产 App 消息监听的配置、快照、历史及双日志位于私有 `MessageMonitoring` 目录。旧 `LocalMonitoring` 不再创建采样实例，只保留历史运行与 Boost 导出；历史 scope 不代表当前仍在该目录运行。Provider 日志与 App 日志分别保留，导出汇合对应流并保留来源和原始时间，不覆盖旧缓存。
+生产 App 监听的配置、快照、历史及双日志位于私有 `BackBoardMonitoring` 目录，复用 1.0.3 / build 2 已有配置和成功历史；默认关闭，只有该目录原本已启用才恢复。不迁移旧消息业务启用值。旧 `MessageMonitoring` 和 `LocalMonitoring` 只读导出历史运行与 Boost，不创建采样实例；历史 scope 不代表当前仍在该目录运行。Provider 日志与 App 日志分别保留，导出汇合对应流并保留来源和原始时间，不覆盖旧缓存。
 
 本地模式下，配置消息必须带有效参数及匹配 revision。扩展的成功历史保存在 ProviderRuntime，系统重新拉起不会被主 App 的旧历史覆盖。由 App 开启时携带最新保存参数及已获取的成功历史，Provider 只接受更新的历史；每次路径选择先成功读取 VPN 配置，并将最新配置持久化到同一扩展所有 profile 的 `initialConfiguration`；读取或任一保存失败时阻止启动目标路径，避免把读取失败当作没有 VPN。系统重新拉起时优先应用启动参数或 profile 中该配置，防止 Provider 私有目录中的旧启用值恢复被关闭的路径。完成通知的历史仍保存在 ProviderRuntime，不由旧主 App 历史覆盖。
 
@@ -81,11 +81,11 @@ Provider start/stop 与独立监听不依赖 App 状态查询成功。`MonitorCh
 
 ## 完整亮度日志
 
-`Monitoring/BoostTraceRecorder.swift` 由两路 SwitchMonitor 共用；原轮询路径在进入动态采样后，记录前 5 秒常规上下文与之后每次读取、评分和频率结果。独立按亮度连续 2 秒波动不超过 0.005 判定结束，恢复 1 Hz 不结束记录。Boost 按次写入紧凑记录，与运行日志各自导出、分页同步和持久缓存；快照的 `boostTraceIDs` 与活动记录保持一致。App 消息路径不启动动态轮询，仅记录实际消息输入；消息稀疏时不补齐五秒上下文或两秒稳定窗口。范围、中断与容量约定见 [BOOST_TRACE_LOG.md](BOOST_TRACE_LOG.md)。
+`Monitoring/BoostTraceRecorder.swift` 由两路 SwitchMonitor 共用；两条轮询路径在进入动态采样后，记录前 5 秒常规上下文与之后每次读取、评分和频率结果。独立按亮度连续 2 秒波动不超过 0.005 判定结束，恢复 1 Hz 不结束记录。Boost 按次写入紧凑记录，与运行日志各自导出、分页同步和持久缓存；快照的 `boostTraceIDs` 与活动记录保持一致。App 路径重新启用完整 Boost：保存真实五秒上下文及后续每次采样，连续两秒波动不超过 0.005 才完整结束；缺失执行期间不补造输入。范围、中断与容量约定见 [BOOST_TRACE_LOG.md](BOOST_TRACE_LOG.md)。
 
 ## 生命周期约束
 
-轮询变频约束只适用于 Packet Tunnel 原采样器；App 消息路径没有轮询计时器。
+两条路径共用模型与变频约束；App 纯轮询无亮度事件，Packet Tunnel 保留 UIScreen 事件输入。切换后重新建立观测基线。
 
 - start 先初始化持久化状态，再开始真实采样；初次状态无法保存时清理采样资源并返回失败。
 - sleep/stop/reload 使旧采样回调失效，清除趋势起点与速度窗口。

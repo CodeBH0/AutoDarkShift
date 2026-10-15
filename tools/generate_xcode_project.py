@@ -41,12 +41,14 @@ shared = ["Shared/Models.swift", "Shared/ThresholdStateMachine.swift", "Shared/S
           "Shared/ServiceContracts.swift", "Shared/MonitorMessageChannel.swift", "Shared/RuntimeStorage.swift",
           "Shared/KeepAliveContracts.swift", "Shared/KeepAliveManager.swift", "Shared/KeepAliveSwitchControl.swift", "Shared/MonitoringReadback.swift", "Shared/MonitorExport.swift"]
 monitoring = ["Monitoring/SwitchMonitor.swift", "Monitoring/BoostTraceRecorder.swift", "Monitoring/MonitorControlEndpoint.swift", "Monitoring/LocalMonitoringClient.swift", "Monitoring/MonitoringHostCoordinator.swift", "Monitoring/ExclusiveMonitoringBusiness.swift"]
-platform = ["Platform/ScreenBrightnessSampler.swift", "Platform/LocalModeNotificationSink.swift", "Platform/LoopbackMonitorTransport.swift"]
+platform = ["Platform/LocalModeNotificationSink.swift", "Platform/LoopbackMonitorTransport.swift"]
+tunnel_platform = ["Platform/ScreenBrightnessSampler.swift"]
+app_platform = ["Platform/BackBoardBrightnessProbe.swift", "Platform/BackBoardBrightnessSampler.swift"]
 keepalive = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "KeepAlive").glob("*.swift"))
 app = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "App").glob("*.swift"))
 tunnel = ["PacketTunnel/PacketTunnelProvider.swift"]
 tests = sorted(str(p.relative_to(ROOT)) for p in (ROOT / "Tests").glob("*.swift"))
-refs = {path: file(path, "sourcecode.swift") for path in shared + app + tunnel + tests + monitoring + platform + keepalive}
+refs = {path: file(path, "sourcecode.swift") for path in shared + app + tunnel + tests + monitoring + platform + app_platform + tunnel_platform + keepalive}
 extras = {
     "App": ["App/Info.plist", "App/AutoDarkShift.entitlements"],
     "PacketTunnel": ["PacketTunnel/Info.plist", "PacketTunnel/PacketTunnel.entitlements"],
@@ -73,7 +75,7 @@ for name, product_path, kind in [
 
 groups = []
 for name, paths in [("App", app + extras["App"]), ("PacketTunnel", tunnel + extras["PacketTunnel"]),
-                    ("Monitoring", monitoring), ("Platform", platform), ("KeepAlive", keepalive),
+                    ("Monitoring", monitoring), ("Platform", platform + app_platform + tunnel_platform), ("KeepAlive", keepalive),
                     ("Shared", shared), ("Tests", tests), ("Config", extras["Config"]), ("Docs", extras["Docs"])]:
     groups.append(add("group:" + name, "PBXGroup", children=array([refs[p] for p in paths]),
                       name=quote(name), sourceTree=quote("<group>")))
@@ -122,9 +124,9 @@ proxy = add("proxy:PacketTunnel", "PBXContainerItemProxy", containerPortal=proje
 dependency = add("dependency:PacketTunnel", "PBXTargetDependency", target=target_ids["PacketTunnel"], targetProxy=proxy)
 
 for name, sources, used_frameworks in [
-    ("AutoDarkShift", app + keepalive + shared + monitoring + platform, list(frameworks)),
-    ("PacketTunnel", tunnel + shared + monitoring + platform, ["Foundation", "UIKit", "NetworkExtension", "UserNotifications"]),
-    ("AutoDarkShiftCoreTests", tests + shared + monitoring + ["Platform/LoopbackMonitorTransport.swift"], []),
+    ("AutoDarkShift", app + keepalive + shared + monitoring + platform + app_platform, list(frameworks)),
+    ("PacketTunnel", tunnel + shared + monitoring + platform + tunnel_platform, ["Foundation", "UIKit", "NetworkExtension", "UserNotifications"]),
+    ("AutoDarkShiftCoreTests", tests + shared + monitoring + ["Platform/LoopbackMonitorTransport.swift"] + app_platform, []),
 ]:
     source_builds = [add("build:" + name + ":" + path, "PBXBuildFile", fileRef=refs[path]) for path in sources]
     framework_builds = [add("link:" + name + ":" + f, "PBXBuildFile", fileRef=frameworks[f]) for f in used_frameworks]

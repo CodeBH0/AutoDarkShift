@@ -13,12 +13,18 @@ struct DashboardView: View {
                 if let snapshot = controller.displayedSnapshot {
                     LabeledContent("监听轮询频率", value: snapshot.activePollInterval.map {
                         "\(Int((1 / $0).rounded())) Hz"
-                    } ?? (controller.messageBusinessEnabled ? "仅亮度消息" : "未采样"))
+                    } ?? "未采样")
+                    dateRow("最近轮询", snapshot.lastPollAt)
+                    LabeledContent("采样心跳", value: controller.heartbeatAge.map { "\(formatted($0)) 秒前" } ?? "无")
                     LabeledContent("趋势评分 S", value: snapshot.trend.map { formatted($0.score) } ?? "无")
+                    LabeledContent("动态采样", value: snapshot.trend.map { $0.dynamicSampling ? "进行中" : "常规 1 Hz" } ?? "无")
                     LabeledContent("最近采样亮度", value: actualBrightness(snapshot))
                 } else {
                     LabeledContent("监听轮询频率", value: "未采样")
+                    LabeledContent("最近轮询", value: "无")
+                    LabeledContent("采样心跳", value: "无")
                     LabeledContent("趋势评分 S", value: "无")
+                    LabeledContent("动态采样", value: "无")
                     LabeledContent("最近采样亮度", value: "无")
                 }
                 LabeledContent("当前 App 可见外观", value: colorScheme == .dark ? "深色" : "浅色")
@@ -32,14 +38,14 @@ struct DashboardView: View {
                 .disabled(controller.businessControlsDisabled)
 
                 Toggle("App 内监控", isOn: Binding(
-                    get: { controller.messageBusinessEnabled },
-                    set: { controller.setMessageBusinessEnabled($0) }
+                    get: { controller.appMonitoringEnabled },
+                    set: { controller.setAppMonitoringEnabled($0) }
                 ))
-                .disabled(controller.businessControlsDisabled || !controller.messageBusinessAvailable)
-                Text("两条路径互斥，开启一条会先停止另一条。Packet Tunnel 需要 VPN 连接；App 内监控使用 iOS 26 亮度消息，无轮询，后台执行许可来自 PiP 或 Location。")
+                .disabled(controller.businessControlsDisabled || !controller.appMonitoringAvailable)
+                Text("两条路径互斥，开启一条会先停止另一条。Packet Tunnel 需要 VPN 连接；App 内监控使用 BKS 轮询，后台执行许可来自 PiP 或 Location。")
                     .font(.caption).foregroundStyle(.secondary)
-                if !controller.messageBusinessAvailable {
-                    Text("App 内监控需要 iOS 26 或更新版本。")
+                if !controller.appMonitoringAvailable {
+                    Text("App 内监控当前不可用。")
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
@@ -68,5 +74,9 @@ struct DashboardView: View {
 
     private func formatted(_ value: Double) -> String {
         String(format: "%.3f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+
+    private func dateRow(_ title: String, _ date: Date?) -> some View {
+        LabeledContent(title, value: date?.formatted(date: .abbreviated, time: .standard) ?? "无")
     }
 }

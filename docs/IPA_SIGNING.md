@@ -1,14 +1,23 @@
 # iPhone 重签 IPA
 
-当前源码为 **1.1.0 / build 1**，本轮交付完全未签名 IPA。主 App 与 `PlugIns/PacketTunnel.appex` 都需要你在手机侧使用证书和匹配描述文件重签；本机没有使用开发者证书或本地 ad-hoc 签名。
+当前源码与本轮交付固定为 **1.1.0 / build 2**。App 内监控使用 `BKSDisplayBrightnessGetCurrent` 纯轮询；Packet Tunnel 保留原 UIScreen 事件加轮询。两路最低系统均为 iOS 17，已删除类型化亮度消息，不再要求 iOS 26。App 与扩展仍需你在手机侧分别重签。
 
-首次打包命令为 `bash tools/package_ipa.sh --direct-sdk --current-build --unsigned`。`--current-build` 仅允许该版本 / build 首次使用；之后使用 `bash tools/package_ipa.sh --direct-sdk --unsigned` 自动递增。默认不加 `--unsigned` 时仍保留旧占位签名流程。
+## 1.1.0 / build 2 当前未签名包
 
-本轮产物与核对结果见下方当前包记录。`--unsigned` 不把权限嵌入签名；需要重签工具为两个组件配置 Network Extension 权限。参考权限文件分别位于 `build/1.1.0/build1/Signing/AutoDarkShift.entitlements` 和 `PacketTunnel.entitlements`。App Group 可选及标识符同步要求仍见下方签名说明。
+- 文件：`build/AutoDarkShift-1.1.0-build2-unsigned.ipa`，949894 字节。
+- SHA-256：`337cd9e48530ca962eed48eff4d61a33a785b3722215c6738b7b8e60dbcb406a`，另有 `.ipa.sha256`。
+- 主 App / PacketTunnel：arm64、1.1.0 / build 2、最低 iOS 17、SDK 26.2。
+- 包内无签名目录或描述文件，两个 Mach-O 均无 LC_CODE_SIGNATURE。本机未调用 codesign，未使用证书或 ad-hoc 签名。
+- BKS getter / framework 路径仅在主 App 二进制中出现；扩展没有 BKS，亮度消息实现已移除。此项是包边界核对，不证明真机私有符号可用或读数新鲜。
+- 61 core / 86 XCTest 通过，当前源码 arm64 Release 编译成功；真实 BKS、后台 / 锁屏及通知展示待设备测试。
 
-最低系统仍为 iOS 17；App 内消息监控需 iOS 26+，Packet Tunnel 路径保留原事件与动态轮询。两路严格互斥，首次测试建议从 [1.1.0 验收表](DEVICE_ACCEPTANCE.md) 开始。构建和包结构核对不代表真机通过。
+本次以 `bash tools/package_ipa.sh --direct-sdk --current-build --unsigned` 使用已配置的 build 2，没有继续递增。build 1 产物及校验值保留不变。核对报告在 `build/1.1.0/build2/ipa-verification.json`，过程记录在 `build/validation-1.1.0-build2/`。
 
-## 1.1.0 / build 1 当前未签名包
+权限参考文件在 `build/1.1.0/build2/Signing/AutoDarkShift.entitlements` 和 `PacketTunnel.entitlements`；完全未签名包未嵌入这些签名权限，重签时需为两组件配置 Network Extension，App Group 按下方说明选择。标识符同步规则仍适用。真机步骤见 [当前验收表](DEVICE_ACCEPTANCE.md)，输入实现见 [BackBoard 说明](BACKBOARD_MONITORING.md)。
+
+默认打包脚本保留后续自动递增能力；本轮按用户要求固定 build 2，不再调用递增打包。后续验证默认仅做改动所需的最小测试，严重问题再扩大回归。
+
+## 1.1.0 / build 1 历史未签名包
 
 - 文件：`build/AutoDarkShift-1.1.0-build1-unsigned.ipa`，953803 字节。
 - SHA-256：`515a39d213451b06e21c551dd9b181ee2c5586ea452ba802204f706bbc977901`，另有 `.ipa.sha256` 文件。

@@ -34,11 +34,6 @@ if [[ -z "${DEVELOPER_DIR:-}" ]]; then
 fi
 
 /usr/bin/xcrun --sdk iphoneos --show-sdk-path >/dev/null
-SDK_VERSION="$(/usr/bin/xcrun --sdk iphoneos --show-sdk-version)"
-if [[ "${SDK_VERSION%%.*}" -lt 26 ]]; then
-    echo "This source requires Xcode 26 or newer with an iOS 26 SDK (UIScreen.BrightnessDidChangeMessage)." >&2
-    exit 1
-fi
 mkdir -p build
 
 # Default packaging consumes a new shared build number, including failed builds.

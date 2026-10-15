@@ -8,9 +8,9 @@ import SwiftUI
 final class AppController: ObservableObject {
     @Published var configuration = MonitorConfiguration()
     @Published private(set) var autoDarkShiftEnabled = true
-    @Published private(set) var messageBusinessEnabled = false
-    @Published private(set) var messageSnapshot: RuntimeSnapshot?
-    private var messageConfiguration = MonitorConfiguration(isEnabled: false)
+    @Published private(set) var appMonitoringEnabled = false
+    @Published private(set) var appSnapshot: RuntimeSnapshot?
+    private var appConfiguration = MonitorConfiguration(isEnabled: false)
     @Published private(set) var keepAliveEntries: [KeepAliveEntry] = []
     let pipService: PiPKeepAliveService?
     @Published private(set) var keepAliveState = KeepAliveState()
@@ -36,8 +36,8 @@ final class AppController: ObservableObject {
     private let fallbackReason: String?
     private let keepAliveManager: KeepAliveManager
     private let hostCoordinator: MonitoringHostCoordinator?
-    private let messageCoordinator: MonitoringHostCoordinator?
-    private let messageStore: SharedStore?
+    private let appCoordinator: MonitoringHostCoordinator?
+    private let appStore: SharedStore?
     private let businesses: ExclusiveMonitoringBusiness?
     private var businessReady = false
     private var businessSwitching = false
@@ -64,16 +64,16 @@ final class AppController: ObservableObject {
          diagnostics: SharedStore?, record: @escaping (String, [String: String]) -> Void,
          keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
          pipService: PiPKeepAliveService? = nil,
-         messageCoordinator: MonitoringHostCoordinator? = nil, messageStore: SharedStore? = nil,
-         businesses: ExclusiveMonitoringBusiness? = nil, messageSetupError: String? = nil) {
+         appCoordinator: MonitoringHostCoordinator? = nil, appStore: SharedStore? = nil,
+         businesses: ExclusiveMonitoringBusiness? = nil, appSetupError: String? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
         self.record = record
         self.keepAliveManager = keepAliveManager ?? KeepAliveManager(services: [(.vpn, keepAlive)])
         self.hostCoordinator = hostCoordinator
-        self.messageCoordinator = messageCoordinator
-        self.messageStore = messageStore
+        self.appCoordinator = appCoordinator
+        self.appStore = appStore
         self.businesses = businesses
         self.pipService = pipService
         self.store = storage?.store
@@ -85,14 +85,14 @@ final class AppController: ObservableObject {
         }
         do {
             if let store { configuration = try store.configuration(); snapshot = try store.snapshot() }
-            if let messageStore { messageConfiguration = try messageStore.configuration() }
-            messageBusinessEnabled = messageConfiguration.isEnabled
+            if let appStore { appConfiguration = try appStore.configuration() }
+            appMonitoringEnabled = appConfiguration.isEnabled
         } catch { self.storageError = describeError(error) }
-        if let messageSetupError { self.appError = "App 内监控未就绪：\(messageSetupError)" }
+        if let appSetupError { self.appError = "App 内监控未就绪：\(appSetupError)" }
         record("app_launch", ["storageMode": self.storageMode.rawValue,
                               "identity": String(describing: RuntimeIdentity.installed(storageMode: self.storageMode)),
                               "storageError": self.storageError ?? "none", "storageFallbackReason": fallbackReason ?? "none"])
-        autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled
+        autoDarkShiftEnabled = configuration.isEnabled && !appMonitoringEnabled
         busy = true
         businessSwitching = true
         updateSwitchState()
@@ -141,21 +141,18 @@ final class AppController: ObservableObject {
 
     var keepAliveName: String { keepAlive.name }
     var businessControlsDisabled: Bool { busy || vpnOperation != nil || !businessReady }
-    var messageBusinessAvailable: Bool {
-        if #available(iOS 26.0, *) { return businesses != nil }
-        return false
-    }
-    var displayedSnapshot: RuntimeSnapshot? { messageBusinessEnabled ? messageSnapshot : snapshot }
+    var appMonitoringAvailable: Bool { businesses != nil }
+    var displayedSnapshot: RuntimeSnapshot? { appMonitoringEnabled ? appSnapshot : snapshot }
     var displayedRuntimeConfirmed: Bool {
-        messageBusinessEnabled ? messageCoordinator?.localRuntimeSnapshot != nil : runtimeConfirmed
+        appMonitoringEnabled ? appCoordinator?.localRuntimeSnapshot != nil : runtimeConfirmed
     }
     var displayedConfigurationConfirmed: Bool {
-        let expected = messageBusinessEnabled ? messageConfiguration : configuration
+        let expected = appMonitoringEnabled ? appConfiguration : configuration
         return displayedRuntimeConfirmed && displayedSnapshot?.appliedConfiguration == expected &&
             expected.cooldown == configuration.cooldown
     }
     var activeBusinessText: String {
-        messageBusinessEnabled ? "App 内监控" : autoDarkShiftEnabled ? "Packet Tunnel 监控" : "均已关闭"
+        appMonitoringEnabled ? "App 内监控" : autoDarkShiftEnabled ? "Packet Tunnel 监控" : "均已关闭"
     }
     var canReadMonitoring: Bool { hostCoordinator?.canMessage ?? keepAliveState.phase.canMessage }
     private var usesVPNMonitoring: Bool { hostCoordinator?.usesVPN ?? true }
@@ -218,25 +215,25 @@ final class AppController: ObservableObject {
     }
 
     var heartbeatAge: TimeInterval? {
-        snapshot?.heartbeatAt.map { max(0, now.timeIntervalSince($0)) }
+        displayedSnapshot?.heartbeatAt.map { max(0, now.timeIntervalSince($0)) }
     }
     var heartbeatLimit: TimeInterval {
-        max(5, (snapshot?.activePollInterval ?? BrightnessTrendModel.normalPollInterval) * 3)
+        max(5, (displayedSnapshot?.activePollInterval ?? BrightnessTrendModel.normalPollInterval) * 3)
     }
     var samplingIsLive: Bool {
-        if messageBusinessEnabled {
-            return messageCoordinator?.localRuntimeSnapshot?.phase == .running &&
-                messageSnapshot?.appliedConfiguration.isEnabled == true
-        }
-        guard let snapshot, snapshot.phase == .running, let age = heartbeatAge else { return false }
-        return age <= heartbeatLimit && canReadMonitoring && runtimeConfirmed && snapshot.appliedConfiguration.isEnabled
+        guard let current = displayedSnapshot, current.phase == .running,
+              let age = heartbeatAge, current.appliedConfiguration.isEnabled else { return false }
+        return age <= heartbeatLimit && displayedRuntimeConfirmed &&
+            (appMonitoringEnabled || canReadMonitoring)
     }
     var samplingText: String {
-        if messageBusinessEnabled {
-            guard let current = messageCoordinator?.localRuntimeSnapshot else { return "正在准备 App 内监控" }
+        if appMonitoringEnabled {
+            guard let current = appCoordinator?.localRuntimeSnapshot else { return "正在准备 App 内监控" }
             if current.phase == .sleeping { return "App 内监控等待执行许可" }
             if current.phase == .running, current.appliedConfiguration.isEnabled {
-                return "App 内亮度观察者已注册，等待系统消息"
+                if samplingIsLive { return "App 内 BKS 正在采样（心跳有效）" }
+                if let age = heartbeatAge, age > heartbeatLimit { return "App 内最近采样较旧，等待刷新" }
+                return "App 内 BKS 等待轮询读数"
             }
             return "App 内监控阶段：\(current.phase.rawValue)"
         }
@@ -280,7 +277,7 @@ final class AppController: ObservableObject {
                 guard let self else { return }
                 self.now = Date()
                 self.refreshSnapshot()
-                self.messageSnapshot = self.messageCoordinator?.localRuntimeSnapshot
+                self.appSnapshot = self.appCoordinator?.localRuntimeSnapshot
                 self.keepAliveManager.updateStates()
                 if self.storageMode == .localIPC || !self.usesVPNMonitoring ||
                     self.snapshot?.appliedConfiguration.revision != self.configuration.revision { self.scheduleQuery() }
@@ -326,12 +323,12 @@ final class AppController: ObservableObject {
         let policy = "\(sceneState):\(allowed):\(pipPhase):\(locationPhase):\(hostCoordinator?.hostName ?? "vpn")"
         if policy != lastExecutionPolicy {
             lastExecutionPolicy = policy
-            let runtime = messageCoordinator?.localRuntimeSnapshot
+            let runtime = appCoordinator?.localRuntimeSnapshot
             record("app_execution_allowed", [
                 "source": "app_controller", "sceneState": sceneState,
                 "appForeground": String(appIsForeground), "pipPhase": pipPhase,
                 "locationPhase": locationPhase, "allowed": String(allowed),
-                "listenerHost": messageBusinessEnabled ? "app" : "vpn",
+                "listenerHost": appMonitoringEnabled ? "app" : "vpn",
                 "runtimePhase": runtime?.phase.rawValue ?? "none",
                 "pollInterval": runtime?.activePollInterval.map { String($0) } ?? "none",
                 "heartbeatAt": runtime?.heartbeatAt?.ISO8601Format() ?? "none",
@@ -339,7 +336,7 @@ final class AppController: ObservableObject {
             ])
         }
         hostCoordinator?.setAppExecutionAllowed(allowed)
-        messageCoordinator?.setAppExecutionAllowed(allowed)
+        appCoordinator?.setAppExecutionAllowed(allowed)
     }
 
     func setKeepAliveEnabled(_ enabled: Bool, method: KeepAliveMethod = .vpn) {
@@ -439,9 +436,9 @@ final class AppController: ObservableObject {
         }
     }
 
-    func setMessageBusinessEnabled(_ enabled: Bool) {
-        guard enabled != messageBusinessEnabled else { return }
-        switchBusiness(enabled ? .message : nil)
+    func setAppMonitoringEnabled(_ enabled: Bool) {
+        guard enabled != appMonitoringEnabled else { return }
+        switchBusiness(enabled ? .app : nil)
     }
 
     private func switchBusiness(_ selection: MonitoringBusiness?) {
@@ -473,7 +470,7 @@ final class AppController: ObservableObject {
                 throw ProjectError.message("业务切换未完成，请核对停用和启动的确认结果后重试。\(describeError(error))")
             }
             if selection == .standard, let reply { self.acceptReply(reply) }
-            self.message = selection == .message ? "App 内监控已开启，Packet Tunnel 采样已停用。" :
+            self.message = selection == .app ? "App 内监控已开启，Packet Tunnel 采样已停用。" :
                 selection == .standard ? (self.hostCoordinator?.isWaitingForVPN == true ?
                     "已选择 Packet Tunnel 监控，等待 VPN 连接。" : "Packet Tunnel 监控已开启，App 内采样已停用。") :
                     "两条监控路径已关闭，保活方案继续运行。"
@@ -484,10 +481,10 @@ final class AppController: ObservableObject {
     private func refreshBusinessState() {
         do {
             if let store { configuration = try store.configuration() }
-            if let messageStore { messageConfiguration = try messageStore.configuration() }
-            messageBusinessEnabled = messageConfiguration.isEnabled
-            autoDarkShiftEnabled = configuration.isEnabled && !messageBusinessEnabled
-            messageSnapshot = messageCoordinator?.localRuntimeSnapshot
+            if let appStore { appConfiguration = try appStore.configuration() }
+            appMonitoringEnabled = appConfiguration.isEnabled
+            autoDarkShiftEnabled = configuration.isEnabled && !appMonitoringEnabled
+            appSnapshot = appCoordinator?.localRuntimeSnapshot
         } catch {
             storageError = describeError(error)
             record("business_configuration_read_failed", ["error": describeError(error)])
@@ -573,18 +570,18 @@ final class AppController: ObservableObject {
             try store.saveConfiguration(saved)
             self.configuration = saved
             try await self.monitoring.persistConfigurationForNextStart(saved)
-            if let messageStore = self.messageStore {
-                var messageConfiguration = try messageStore.configuration()
-                messageConfiguration.cooldown = saved.cooldown
-                messageConfiguration.revision = UUID().uuidString
-                try messageStore.saveConfiguration(messageConfiguration.validated())
-                self.messageConfiguration = messageConfiguration
-                if messageConfiguration.isEnabled, let coordinator = self.messageCoordinator {
-                    let reply = try await coordinator.applyConfiguration(messageConfiguration)
-                    guard reply.success, reply.appliedRevision == messageConfiguration.revision else {
+            if let appStore = self.appStore {
+                var appConfiguration = try appStore.configuration()
+                appConfiguration.cooldown = saved.cooldown
+                appConfiguration.revision = UUID().uuidString
+                try appStore.saveConfiguration(appConfiguration.validated())
+                self.appConfiguration = appConfiguration
+                if appConfiguration.isEnabled, let coordinator = self.appCoordinator {
+                    let reply = try await coordinator.applyConfiguration(appConfiguration)
+                    guard reply.success, reply.appliedRevision == appConfiguration.revision else {
                         throw ProjectError.message("App 内监控未确认应用配置：\(reply.message)")
                     }
-                    self.messageSnapshot = reply.snapshot
+                    self.appSnapshot = reply.snapshot
                 }
             }
             self.keepAlive.updateState()
@@ -614,10 +611,10 @@ final class AppController: ObservableObject {
 
     func queryMonitoring() {
         run {
-            if self.messageBusinessEnabled, let coordinator = self.messageCoordinator {
+            if self.appMonitoringEnabled, let coordinator = self.appCoordinator {
                 let reply = try await coordinator.queryStatus()
                 guard reply.success else { throw ProjectError.message(reply.message) }
-                self.messageSnapshot = reply.snapshot
+                self.appSnapshot = reply.snapshot
                 self.message = reply.message
                 return
             }
@@ -685,9 +682,9 @@ final class AppController: ObservableObject {
                 "storageMode": self.storageMode.rawValue,
                 "storageFallbackReason": self.fallbackReason ?? "none",
                 "appGroupIdentifier": RuntimeIdentity.installed().appGroupIdentifier,
-                "monitorHost": self.messageBusinessEnabled ? "App 亮度消息" : self.hostCoordinator?.hostName ?? "VPN 扩展",
+                "monitorHost": self.appMonitoringEnabled ? "App BKS 轮询" : self.hostCoordinator?.hostName ?? "VPN 扩展",
                 "autoDarkShiftEnabled": String(self.autoDarkShiftEnabled),
-                "messageBusinessEnabled": String(self.messageBusinessEnabled),
+                "appMonitoringEnabled": String(self.appMonitoringEnabled),
                 "runtimeConfirmed": String(self.displayedRuntimeConfirmed), "runtimeError": self.runtimeError ?? "none",
                 "readbackAvailability": self.readback.availability.rawValue,
                 "readbackDetail": self.readback.issue ?? "none",
@@ -714,9 +711,9 @@ final class AppController: ObservableObject {
                 do { data.append(Data(try coordinator.localDiagnostics(stream: stream).utf8)) }
                 catch { try self.appendExportEvent("app_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
             }
-            if let coordinator = self.messageCoordinator {
+            if let coordinator = self.appCoordinator {
                 do { data.append(Data(try coordinator.localDiagnostics(stream: stream).utf8)) }
-                catch { try self.appendExportEvent("message_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
+                catch { try self.appendExportEvent("backboard_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
             }
             var stateData = Data()
             if stream == .boost, self.storageMode == .appGroup, self.usesVPNMonitoring {

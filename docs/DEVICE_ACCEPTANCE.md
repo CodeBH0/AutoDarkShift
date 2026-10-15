@@ -13,27 +13,28 @@
 
 不把不可观测改写为已通过，也不要求所有字段、回调和精确时间在每台设备上都满足。
 
-## 1.1.0 / build 1：固定进程与互斥路径专项
+## 1.1.0 / build 2：固定进程与 BackBoard 纯轮询专项
 
-本节为当前版本验收入口，以下全部尚未执行。实际构建 / 纯逻辑验证另见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)；历史设备反馈不能替代本版本结果。安装前用自己的证书及匹配描述文件重签主 App 与 PacketTunnel 扩展，核对两者均为 1.1.0 / build 1，断开调试器后开始。
+本轮固定 build 2，不继续迭代。以下全部尚未执行；实际构建 / 回归见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)。核对主 App 与扩展均为 1.1.0 / build 2，完成自己的证书重签，断开调试器后开始。历史反馈不能替代本版本验收。
 
 | 场景 | 操作与期望证据 | 当前结果 |
 | --- | --- | --- |
-| 固定 Packet Tunnel 进程 | 关闭 VPN，选择 Packet Tunnel，确认保存选择并等待连接；前台调亮度及单开 PiP / Location 均不能创建 App fallback。连接 VPN 后才取得扩展原事件 / poll 输入；断开后继续等待，无自动 App 采样 | 未执行 |
-| 固定 App 进程 | iOS 26+ 选择 App 内监控，前台调亮度取得 `scope=message_monitor`、`samplingMode=typed_message_only` 的实际输入；poll 计数不增长、没有有效轮询频率。开启 / 关闭 VPN 不迁移进程、不重启原本地轮询 | 未执行 |
-| VPN 单独保活 | 选 App，仅启 VPN，关闭 PiP / Location 后进入后台；确认 App 不因 VPN 获得后台许可。回前台才恢复消息观察。VPN 仍连接，扩展监听保持禁用 | 未执行 |
-| App 保活组合 | 选 App，分别单开 PiP、单开 Location、同时开启；分别测试 VPN 已连接和未连接。确认实际 active 后后台许可才恢复；关闭其中一个保留另一许可，关闭最后一个后 sleep；始终只有一个 App 消息实例 | 未执行 |
-| 严格切换与在途通知 | 两条路径往返切换，包含通知授权等待及系统 add 已发出时。新路径只能在旧采样停止且系统请求终态保存后启动；旧观察者回调失效。无回复 / 超时应报未确认并不启动目标 | 未执行 |
-| 关闭业务与保活独立 | 三种保活同时开启，再关闭两路监听。保活继续，采样及新候选停止，已提交请求允许结算一次；重新选择从新基线开始 | 未执行 |
-| 保存选择与系统重启 | 连接 VPN 后选 App，再由系统断开 / 重连或重新拉起 Provider；核对最新 profile `initialConfiguration` 禁用扩展，不能恢复 Provider 私有旧启用值。再选 Packet Tunnel，未连接时保存、重连后应用。分别记录 app-group / local-ipc 实际覆盖范围 | 未执行 |
-| 双日志与历史 | 每条路径形成真实输入后分别导出运行 / Boost，保留来源、实例和原始时间；旧 LocalMonitoring 可导出历史，但不能出现当前新增采样。消息稀疏时不补齐五秒上下文或两秒稳定窗口 | 未执行 |
-| 平台和预留能力 | iOS 26 以下 App 消息路径明确不可用；GUI 仅提供 VPN / PiP / Location，无 silentAudio 服务开关，不创建独立静音播放 | 未执行 |
+| Packet Tunnel 固定进程 | VPN 关闭时选该路径只保存等待，不产生 App fallback；连接后仅扩展 UIScreen 事件加轮询。断开后继续等待，BackBoard 框架不加载 | 未执行 |
+| App 输入与最低系统 | iOS 17+ 选择 App 后才加载 / 预检 BackBoard getter；只有 BKS initial / wake / poll，event 不增长，无 UIKit 通知、类型化消息或诊断对照。VPN 启停不迁移进程 | 未执行 |
+| getter 不可用 | 在实际缺符号 / 框架环境记录明确错误；不造样本或心跳，不回退 UIScreen。若无此环境标记未覆盖，不假称验证成功 | 未执行 |
+| 动态采样与完整 Boost | 前台慢变、明显升降、台阶停顿与稳定，核对 1 / 10 / 30 / 60 / 120 Hz、v2 评分、五秒真实上下文及连续两秒波动≤0.005结束；恢复 1 Hz 不提前结束 | 未执行 |
+| App 后台许可 | 分别仅 PiP、仅 Location、两者同开，再分别有 / 无 VPN。仅确认 active 后允许 App 后台采样；关闭最后一种后 sleep，VPN 单开不授予 App 许可 | 未执行 |
+| 严格互斥与通知 | 通知授权等待 / add 已发出时往返切路径；先停采样及结算已提交请求，再启动目标。超时 / 无回复不启动新路；旧调度回调失效，新路从新基线开始 | 未执行 |
+| 开关独立 | 同开三种保活再关闭监听，保活继续，采样 / 新候选停止；已提交请求允许完成一次。PiP + Location 仍仅一个 App 采样实例 | 未执行 |
+| 持久选择与系统重启 | 选 App 后由系统重连 VPN，最新 profile initialConfiguration 应保持扩展监听禁用；分别记录 app-group / local-ipc 覆盖。再选 Packet Tunnel，重连后应用该选择 | 未执行 |
+| 目录与旧配置 | 无 BackBoardMonitoring 配置默认关闭；旧 message 启用不应自动启用 BKS。已有 BackBoardMonitoring 配置 / 成功历史按原目录复用。旧 MessageMonitoring / LocalMonitoring 只能导出历史，不新增采样 | 未执行 |
+| 双日志及真实效果 | 分别导出运行与 Boost，核对 backboard_monitor / backboard_poll_only / BKS API 标记，关联物理调亮度时间、getter 值、S、通知接受、展示和外观；无独立静音音频服务 | 未执行 |
 
-后台和锁屏各记录进入时间、物理调亮度时间、实际通知展示与外观效果，再用实际读数 / 回调 / 通知结果解释。亮度不变时没有消息可能正常；状态查询、UI 刷新、定位回调不能冒充亮度采样心跳。无日志、无回调和 getter 数值未随物理变化是不同观测，分别记录。
+后台和锁屏操作记录进入时间及真实调亮度时间。无调用证据、getter 值不随物理变化、模型未形成候选和通知未展示分别评价。轮询 tick、定位回调和页面刷新不能冒充实际亮度读取；缺失后台行不证明 getter 缓存。私有 API 可用性、值新鲜度、耗电与长期后台效果都需真机确认。输入及日志说明见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。
 
 ## 历史验收表的适用范围
 
-下列第 1–15 节保留 1.0.x 的验收方法和设备背景。网络、权限、通知展示、外部联动及 PiP / Location 平台步骤仍可复用；旧“无 VPN 自动切到 App”“开启 VPN 自动转交扩展”、App poll_tick 和轮询频率要求只适用历史实现。1.1.0 进程选择以本页上方专项为准：Packet Tunnel 无 App fallback，App 为类型化消息、无轮询。历史 build 编号、用户反馈、暂停编译状态均不表示本版本通过。
+下列第 1–15 节保留 1.0.x 的验收方法和设备背景。网络、权限、通知展示、外部联动及 PiP / Location 平台步骤仍可复用；旧“无 VPN 自动切到 App”“开启 VPN 自动转交扩展”、旧 App UIKit 输入及自动交接结论只适用历史实现；poll_tick 与动态采样的判读可用于当前 BackBoard，但须按新输入来源核对。1.1.0 / build 2 以本页上方专项为准：Packet Tunnel 无 App fallback，App 为 BackBoard 纯轮询；旧 App UIKit 输入及类型化消息不再使用。历史 build 编号、用户反馈、暂停编译状态均不表示本版本通过。
 
 ## 测试信息
 
@@ -221,7 +222,7 @@
 本轮结果：待用户重签 IPA 后真机测试。本机编译与模拟宿主测试不能确认真实定位授权、系统暂停 / 恢复、耗电、后台亮度新鲜度或通知展示。
 ## 15. 历史类型化亮度消息业务（1.0.3 / build 1，待验证）
 
-1.0.3 当轮按用户要求暂停编译并交接源码；该限制只适用于历史交付。1.1.0 的当前构建说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。以下为历史尚未填写的设备操作表，类型化消息仍要求 iOS 26 或更新系统，不能据此推定当前版本已完成验收。
+1.0.3 当轮按用户要求暂停编译并交接源码；该限制只适用于历史交付。1.1.0 / build 2 当前输入与构建入口见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。以下仅为历史尚未填写的设备操作表；当前版本已移除类型化消息，改用最低 iOS 17 的 BackBoard 纯轮询，不执行本节消息验收。
 
 1. 确认安装版本和 build。启动后开启“亮度消息监听”，确认原监听开关关闭；切回原监听，再关闭两条业务，分别核对实际日志，不把关闭配置落盘当作运行已经停用的证明。
 2. 授予通知权限，先在前台连续调暗 / 调亮。分别导出运行和 Boost 日志，核对 `scope=message_monitor` 中真实 event、亮度、评分和通知结果。没有新消息时采样心跳不应自行更新，poll 计数不应增加。

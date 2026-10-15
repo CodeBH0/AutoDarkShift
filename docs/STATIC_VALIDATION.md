@@ -1,4 +1,23 @@
-# 验证记录（当前源码 1.1.0 / build 1）
+# 验证记录（当前源码 1.1.0 / build 2）
+
+## 2026-10-14 App 改用 BKS 纯轮询（1.1.0 / build 2）
+
+按用户修正，App 输入改为 1.0.3 / build 2（`a7015e5`）的 `BKSDisplayBrightnessGetCurrent`，保持 Float getter、lazy dlopen / dlsym 与 framework handle；删除 UIKit 对照、类型化亮度消息采样器和无需轮询的特殊模式。App 恢复统一动态采样与完整 Boost。Packet Tunnel 原 UIScreen 采样器及 Provider 源码未改动；target 归属限制 UIScreen 采样器只进入扩展，BKS 只进入 App / 核心测试，不进入扩展。
+
+本轮版本固定 **1.1.0 / build 2**，未继续递增。App 最低系统恢复为 iOS 17；BKS 框架 / 符号缺失时明确失败，不回退、不构造读数或心跳。旧消息目录只导出历史，不迁移其启用状态；BackBoardMonitoring 的已有配置 / 历史继续复用。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 工程 / 脚本 / 空白 | 通过：211 对象、59 文件、两个共享 Scheme；三 target 归属及采集 API 边界通过，生成脚本同步，git diff --check 与 bash -n 通过 |
+| core checks | 61 项生产回归通过，含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 86 个方法，0 失败；新增 BKS 轮询、无 getter / 非法读数、变频旧 tick 拒绝，以及生产 SwitchMonitor 的 Boost / 通知 / 睡眠唤醒 / 结算 / 只读查询回归 |
+| iPhoneOS 预编译 | Xcode 26.3 / SDK 26.2，App 与扩展 arm64 Release 编译通过，Swift 5，最低 iOS 17；编译器诊断字典拆为显式类型后通过 |
+| 未签名 IPA | ZIP、双组件版本 / 标识符 / arm64 / 最低 iOS 17 核对通过；无签名目录、描述文件或 LC_CODE_SIGNATURE；BKS getter 和 framework 路径仅存在于主 App 二进制，扩展不含，类型化亮度消息两者均不含 |
+| 设备验证 | 未执行 BKS 私有符号加载、前台 / 后台 / 锁屏亮度新鲜度、通知展示及外部切换；模拟 getter 的测试不验证真机 API 可用性 |
+
+包为 `AutoDarkShift-1.1.0-build2-unsigned.ipa`，949894 字节，SHA-256 `337cd9e48530ca962eed48eff4d61a33a785b3722215c6738b7b8e60dbcb406a`。build 1 的 SHA-256 与本轮前一致，未覆盖；核对报告在 `build/1.1.0/build2/ipa-verification.json`。
+
+最终未签名 IPA 核对记录见 [IPA_SIGNING.md](IPA_SIGNING.md) 当前包。正式回归允许 localhost 监听并使用全新项目内 SwiftPM 缓存；过程文件保存在忽略的 `build/validation-1.1.0-build2/`。没有安装或下载平台、模拟器或虚拟机。下方 build 1 的消息输入和 iOS 26 限制仅为历史记录。
 
 ## 2026-10-14 固定进程互斥路径（1.1.0 / build 1）
 

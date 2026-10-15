@@ -5,61 +5,61 @@ import XCTest
 
 final class ExclusiveMonitoringBusinessTests: XCTestCase {
     @MainActor func testStopFailureNeverStartsTarget() async throws {
-        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .stopped)
+        let fixture = BusinessFixture(standardPhase: .running, appPhase: .stopped)
         fixture.standard.rejectDisable = true
 
         do {
-            _ = try await fixture.coordinator.select(.message)
+            _ = try await fixture.coordinator.select(.app)
             XCTFail("Expected unconfirmed disable to fail")
         } catch { }
 
-        XCTAssertEqual(fixture.message.enabledRequests, 0)
+        XCTAssertEqual(fixture.app.enabledRequests, 0)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
     }
 
     @MainActor func testTargetWaitsForSubmittedNotificationToSettleBeforeStart() async throws {
-        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .stopped)
+        let fixture = BusinessFixture(standardPhase: .running, appPhase: .stopped)
         fixture.standard.holdSubmission = true
 
-        let switching = Task { try await fixture.coordinator.select(.message) }
+        let switching = Task { try await fixture.coordinator.select(.app) }
         await waitForPendingSubmission(in: fixture.standard)
-        XCTAssertEqual(fixture.message.enabledRequests, 0)
+        XCTAssertEqual(fixture.app.enabledRequests, 0)
         XCTAssertEqual(fixture.standardStore.savedHistory, nil)
 
         fixture.standard.resumeSubmission?()
         _ = try await switching.value
 
-        XCTAssertEqual(fixture.message.enabledRequests, 1)
+        XCTAssertEqual(fixture.app.enabledRequests, 1)
         XCTAssertFalse(fixture.standard.applied.isEnabled)
-        XCTAssertEqual(fixture.message.phase, .running)
+        XCTAssertEqual(fixture.app.phase, .running)
         XCTAssertLessThan(try XCTUnwrap(fixture.events.values.firstIndex(of: "standard.settled")),
-                          try XCTUnwrap(fixture.events.values.firstIndex(of: "message.enabled")))
+                          try XCTUnwrap(fixture.events.values.firstIndex(of: "app.enabled")))
         XCTAssertEqual(fixture.standardStore.savedHistory?.target, .dark)
     }
 
-    @MainActor func testResumeConflictDisablesStandardBeforeAnyHostQueryAndMessageWins() async throws {
-        let fixture = BusinessFixture(standardPhase: .stopped, messagePhase: .stopped)
+    @MainActor func testResumeConflictDisablesStandardBeforeAnyHostQueryAndAppWins() async throws {
+        let fixture = BusinessFixture(standardPhase: .stopped, appPhase: .stopped)
         try fixture.standardStore.saveConfiguration(MonitorConfiguration(revision: "s-on", isEnabled: true))
-        try fixture.messageStore.saveConfiguration(MonitorConfiguration(revision: "m-on", isEnabled: true))
+        try fixture.appStore.saveConfiguration(MonitorConfiguration(revision: "m-on", isEnabled: true))
 
         _ = try await fixture.coordinator.resumeSelected()
 
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.appStore.configuration().isEnabled)
         let standardDisable = try XCTUnwrap(fixture.events.values.firstIndex(of: "standardStore.disabled"))
         let firstQuery = try XCTUnwrap(fixture.events.values.firstIndex(where: { $0.hasSuffix(".query") }))
         XCTAssertLessThan(standardDisable, firstQuery)
         XCTAssertEqual(fixture.standard.enabledRequests, 0)
-        XCTAssertEqual(fixture.message.enabledRequests, 1)
+        XCTAssertEqual(fixture.app.enabledRequests, 1)
         XCTAssertFalse(fixture.events.values.contains("standard.apply.disabled"))
     }
 
     @MainActor func testConcurrentSelectionsRunInOrderAndLeaveOnlyLastSelectionEnabled() async throws {
-        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .stopped)
+        let fixture = BusinessFixture(standardPhase: .running, appPhase: .stopped)
         fixture.standard.holdSubmission = true
 
-        let first = Task { try await fixture.coordinator.select(.message) }
+        let first = Task { try await fixture.coordinator.select(.app) }
         await waitForPendingSubmission(in: fixture.standard)
         let second = Task { try await fixture.coordinator.select(.standard) }
         fixture.standard.resumeSubmission?()
@@ -67,44 +67,44 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         _ = try await second.value
 
         XCTAssertTrue(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
         XCTAssertEqual(fixture.standard.phase, .running)
-        XCTAssertFalse(fixture.message.applied.isEnabled)
-        XCTAssertEqual(fixture.message.enabledRequests, 1)
+        XCTAssertFalse(fixture.app.applied.isEnabled)
+        XCTAssertEqual(fixture.app.enabledRequests, 1)
         XCTAssertEqual(fixture.standard.enabledRequests, 1)
     }
 
     @MainActor func testRepeatedSelectionNeverEnablesBothBusinesses() async throws {
-        let fixture = BusinessFixture(standardPhase: .stopped, messagePhase: .stopped)
+        let fixture = BusinessFixture(standardPhase: .stopped, appPhase: .stopped)
 
-        _ = try await fixture.coordinator.select(.message)
-        _ = try await fixture.coordinator.select(.message)
+        _ = try await fixture.coordinator.select(.app)
+        _ = try await fixture.coordinator.select(.app)
 
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.appStore.configuration().isEnabled)
         XCTAssertEqual(fixture.standard.enabledRequests, 0)
-        XCTAssertEqual(fixture.message.enabledRequests, 2)
+        XCTAssertEqual(fixture.app.enabledRequests, 2)
     }
 
     @MainActor func testSelectingNilLeavesBothBusinessesDisabled() async throws {
-        let fixture = BusinessFixture(standardPhase: .running, messagePhase: .running)
+        let fixture = BusinessFixture(standardPhase: .running, appPhase: .running)
 
         let reply = try await fixture.coordinator.select(nil)
 
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
         XCTAssertFalse(fixture.standard.applied.isEnabled)
-        XCTAssertFalse(fixture.message.applied.isEnabled)
+        XCTAssertFalse(fixture.app.applied.isEnabled)
         XCTAssertNil(reply?.snapshot?.activePollInterval)
     }
 
-    @MainActor func testInactiveMessageHostIsNotReconciledWhenStandardIsSelected() async throws {
+    @MainActor func testInactiveAppHostIsNotReconciledWhenStandardIsSelected() async throws {
         let events = EventList()
         let standardStore = BusinessStore(name: "standardStore", events: events)
-        let messageStore = BusinessStore(name: "messageStore", events: events)
+        let appStore = BusinessStore(name: "appStore", events: events)
         let vpn = BusinessClient(name: "vpn", phase: .stopped, events: events)
         var standardStarts = 0
-        var messageFactoryCalls = 0
+        var appFactoryCalls = 0
         let standardHost = MonitoringHostCoordinator(process: .packetTunnel, vpn: vpn,
             vpnState: { KeepAliveState(phase: .stopped) },
             configurationStore: standardStore, localStore: standardStore,
@@ -112,22 +112,22 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
                 standardStarts += 1
                 return BusinessRuntime(configuration: try standardStore.configuration())
             }, exportLocal: { _ in "" })
-        let messageHost = MonitoringHostCoordinator(process: .app, vpn: vpn,
+        let appHost = MonitoringHostCoordinator(process: .app, vpn: vpn,
             vpnState: { KeepAliveState(phase: .stopped) },
-            configurationStore: messageStore, localStore: messageStore,
+            configurationStore: appStore, localStore: appStore,
             makeRuntime: {
-                messageFactoryCalls += 1
-                throw ProjectError.message("message API unavailable")
+                appFactoryCalls += 1
+                throw ProjectError.message("App brightness source unavailable")
             }, exportLocal: { _ in "" })
         let coordinator = ExclusiveMonitoringBusiness(standard: standardHost, standardStore: standardStore,
-            message: messageHost, messageStore: messageStore)
+            app: appHost, appStore: appStore)
 
         _ = try await coordinator.select(.standard)
 
         XCTAssertEqual(standardStarts, 0)
-        XCTAssertEqual(messageFactoryCalls, 0)
+        XCTAssertEqual(appFactoryCalls, 0)
         XCTAssertTrue(try standardStore.configuration().isEnabled)
-        XCTAssertFalse(try messageStore.configuration().isEnabled)
+        XCTAssertFalse(try appStore.configuration().isEnabled)
     }
 
     @MainActor func testDisconnectedTunnelCanBeSelectedDisabledAndReplacedByAppPath() async throws {
@@ -139,19 +139,19 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         XCTAssertNil(selected?.snapshot?.heartbeatAt)
         XCTAssertEqual(fixture.appStarts, 0)
         XCTAssertTrue(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
 
         _ = try await fixture.coordinator.select(nil)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
         XCTAssertEqual(fixture.appStarts, 0)
 
         _ = try await fixture.coordinator.select(.standard)
-        let appReply = try await fixture.coordinator.select(.message)
+        let appReply = try await fixture.coordinator.select(.app)
         XCTAssertEqual(appReply?.snapshot?.phase, .running)
         XCTAssertEqual(fixture.appStarts, 1)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.appStore.configuration().isEnabled)
         XCTAssertFalse(fixture.events.values.contains("vpn.query"))
         XCTAssertEqual(fixture.tunnelAppStarts, 0)
     }
@@ -162,13 +162,13 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
             fixture.vpnState.phase = phase
             fixture.vpn.queryError = MonitorChannelError.emptyReply
             do {
-                _ = try await fixture.coordinator.select(.message)
+                _ = try await fixture.coordinator.select(.app)
                 XCTFail("Unknown tunnel state cannot authorize the App path: \(phase)")
             } catch { }
             XCTAssertEqual(fixture.appStarts, 0)
             XCTAssertEqual(fixture.tunnelAppStarts, 0)
             XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-            XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+            XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
         }
     }
 
@@ -178,7 +178,7 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         fixture.vpn.phase = .running
         fixture.vpn.applied.isEnabled = true
         fixture.vpn.holdSubmission = true
-        let selecting = Task { try await fixture.coordinator.select(.message) }
+        let selecting = Task { try await fixture.coordinator.select(.app) }
         await waitForPendingSubmission(in: fixture.vpn)
         XCTAssertEqual(fixture.appStarts, 0)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
@@ -195,12 +195,12 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
     @MainActor func testPersistedConflictResumesOnlyAppPathWithoutStartingTunnelSampler() async throws {
         let fixture = ProcessBusinessFixture()
         fixture.standardStore.config.isEnabled = true
-        fixture.messageStore.config.isEnabled = true
+        fixture.appStore.config.isEnabled = true
         _ = try await fixture.coordinator.resumeSelected()
         XCTAssertEqual(fixture.appStarts, 1)
         XCTAssertEqual(fixture.tunnelAppStarts, 0)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.appStore.configuration().isEnabled)
         XCTAssertFalse(fixture.events.values.contains("vpn.query"))
     }
 
@@ -208,13 +208,13 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         let fixture = ProcessBusinessFixture()
         fixture.vpn.persistError = ProjectError.message("profile save failed")
         do {
-            _ = try await fixture.coordinator.select(.message)
+            _ = try await fixture.coordinator.select(.app)
             XCTFail("Unpersisted tunnel disable cannot authorize App startup")
         } catch { }
         XCTAssertEqual(fixture.appStarts, 0)
         XCTAssertEqual(fixture.tunnelAppStarts, 0)
         XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
-        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.appStore.configuration().isEnabled)
         XCTAssertFalse(fixture.events.values.contains("vpn.query"))
     }
 
@@ -223,7 +223,7 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         fixture.vpnState.phase = .active
         fixture.vpn.phase = .running
         fixture.vpn.applied.isEnabled = true
-        _ = try await fixture.coordinator.select(.message)
+        _ = try await fixture.coordinator.select(.app)
         let persisted = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.persist.disabled"))
         let queried = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.query"))
         let drained = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.apply.disabled"))
@@ -246,19 +246,19 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
 @MainActor private final class BusinessFixture {
     let events: EventList
     let standardStore: BusinessStore
-    let messageStore: BusinessStore
+    let appStore: BusinessStore
     let standard: BusinessClient
-    let message: BusinessClient
+    let app: BusinessClient
     let coordinator: ExclusiveMonitoringBusiness
 
-    init(standardPhase: RuntimePhase, messagePhase: RuntimePhase) {
+    init(standardPhase: RuntimePhase, appPhase: RuntimePhase) {
         events = EventList()
         standardStore = BusinessStore(name: "standardStore", events: events)
-        messageStore = BusinessStore(name: "messageStore", events: events)
+        appStore = BusinessStore(name: "appStore", events: events)
         standard = BusinessClient(name: "standard", phase: standardPhase, events: events)
-        message = BusinessClient(name: "message", phase: messagePhase, events: events)
+        app = BusinessClient(name: "app", phase: appPhase, events: events)
         coordinator = ExclusiveMonitoringBusiness(standard: standard, standardStore: standardStore,
-            message: message, messageStore: messageStore)
+            app: app, appStore: appStore)
     }
 }
 
@@ -401,7 +401,7 @@ private final class BusinessStore: MonitorStore {
 @MainActor private final class ProcessBusinessFixture {
     let events = EventList()
     lazy var standardStore = BusinessStore(name: "standardStore", events: events)
-    lazy var messageStore = BusinessStore(name: "messageStore", events: events)
+    lazy var appStore = BusinessStore(name: "appStore", events: events)
     lazy var vpn = BusinessClient(name: "vpn", phase: .stopped, events: events)
     var vpnState = KeepAliveState(phase: .stopped)
     var appStarts = 0
@@ -412,14 +412,14 @@ private final class BusinessStore: MonitorStore {
             self.tunnelAppStarts += 1
             throw ProjectError.message("Packet Tunnel must never construct an App sampler")
         }, exportLocal: { _ in "" })
-    lazy var message = MonitoringHostCoordinator(process: .app, vpn: vpn,
-        vpnState: { self.vpnState }, configurationStore: messageStore, localStore: messageStore,
+    lazy var app = MonitoringHostCoordinator(process: .app, vpn: vpn,
+        vpnState: { self.vpnState }, configurationStore: appStore, localStore: appStore,
         makeRuntime: {
             self.appStarts += 1
             self.events.values.append("app.started")
-            return BusinessRuntime(configuration: self.messageStore.config,
-                currentConfiguration: { self.messageStore.config })
+            return BusinessRuntime(configuration: self.appStore.config,
+                currentConfiguration: { self.appStore.config })
         }, exportLocal: { _ in "" })
     lazy var coordinator = ExclusiveMonitoringBusiness(standard: standard, standardStore: standardStore,
-        message: message, messageStore: messageStore)
+        app: app, appStore: appStore)
 }

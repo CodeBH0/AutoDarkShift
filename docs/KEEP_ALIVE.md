@@ -34,17 +34,17 @@ Location 从原先三公里精度 / 最大距离过滤改为 `kCLLocationAccurac
 
 `KeepAliveService`、`KeepAliveManager` 和每种方案的 `KeepAliveSwitchControl` 只依赖 Foundation，不引用 AutoDarkShift 模型、监听或存储。注册新方案时实现平台适配器并在 AppComposition 注册。状态回调由平台驱动，每种方案保存自己的待开启状态、错误及停止意图。
 
-AppController 复用配置、权限、状态读取及日志服务；`ExclusiveMonitoringBusiness` 管理两条互斥监听路径。`MonitoringHostCoordinator` 必须显式指定 `.packetTunnel` 或 `.app`，固定进程，不根据 VPN 状态改变宿主。Packet Tunnel 路径仅由扩展内原采样器运行；未连接时保存选择等待，禁止 App fallback。App 路径只用 iOS 26 类型化亮度消息，不启动事件加轮询的旧本地实现。
+AppController 复用配置、权限、状态读取及日志服务；`ExclusiveMonitoringBusiness` 管理两条互斥监听路径。`MonitoringHostCoordinator` 必须显式指定 `.packetTunnel` 或 `.app`，固定进程，不根据 VPN 状态改变宿主。Packet Tunnel 路径仅由扩展内原采样器运行；未连接时保存选择等待，禁止 App fallback。App 路径最低 iOS 17，只用 BackBoard getter 纯轮询，按 v2 动态选择 1 / 10 / 30 / 60 / 120 Hz；不注册 UIKit 亮度通知或类型化消息，也不读取 UIKit 对照。
 
-PiP 与 Location 只为 App 路径提供后台执行许可，与 VPN 状态无关。二者同开只使用一个消息监听实例；前台允许执行，后台仅在至少一个平台状态实际为 active / reasserting 时允许。启动中、失败、停止中不给后台资格；最后一个 App 保活关闭后 sleep 取消消息观察并清空心跳，回前台或确认恢复后 wake。VPN 连接不能替代此许可，App 许可也不影响扩展执行。
+PiP 与 Location 只为 App 路径提供后台执行许可，与 VPN 状态无关。二者同开只使用一个 BackBoard 监听实例；前台允许执行，后台仅在至少一个平台状态实际为 active / reasserting 时允许。启动中、失败、停止中不给后台资格；最后一个 App 保活关闭后 sleep 取消轮询并清空心跳，回前台或确认恢复后 wake。VPN 连接不能替代此许可，App 许可也不影响扩展执行。
 
-切路径先保存两路禁用配置，确认停止采样并等待已提交系统通知的最终结果，再启用目标；未知或超时不能视为已停止。保活服务开关独立：选 App 时 VPN 可继续连接但扩展采样禁用；选 Packet Tunnel 时 PiP / Location 可继续运行但不创建 App 消息监听。每次选择将最新配置写入 VPN profile 的 `initialConfiguration`，local-ipc 系统重启 Provider 时优先应用它，避免恢复旧启用状态。
+切路径先保存两路禁用配置，确认停止采样并等待已提交系统通知的最终结果，再启用目标；未知或超时不能视为已停止。保活服务开关独立：选 App 时 VPN 可继续连接但扩展采样禁用；选 Packet Tunnel 时 PiP / Location 可继续运行但不创建 App 采样实例。每次选择将最新配置写入 VPN profile 的 `initialConfiguration`，local-ipc 系统重启 Provider 时优先应用它，避免恢复旧启用状态。
 
-App 消息业务存储于私有 `MessageMonitoring`，旧 `LocalMonitoring` 仅用于历史双日志导出，不再采样。运行与 Boost 记录分别导出，保留实际来源、原始时间与旧 Provider 缓存。完整边界和关系图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+App 业务存储于私有 `BackBoardMonitoring`，复用该目录已有配置 / 历史，默认关闭；旧 `MessageMonitoring` 与 `LocalMonitoring` 只读导出历史双日志，不迁移消息启用状态。选择 App 时才加载和预检 BackBoard；失败不回退其他采样源。详见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。运行与 Boost 记录分别导出，保留实际来源、原始时间与旧 Provider 缓存。完整边界和关系图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ## 历史后台监听诊断（1.0.x build 17）
 
-以下是旧 App 事件加轮询路径的诊断背景，不描述 1.1.0 消息路径的生产调度。
+以下是旧 App UIKit 事件加轮询路径的诊断背景。1.1.0 / build 2 复用 Dispatch 调度等待，但使用 BackBoard getter 纯轮询；没有 UIKit 亮度观察者。
 
 PiP 主体、来源宿主、44pt 开启与 0.1pt 缩小流程沿用 build 16。本轮修复 App 执行许可与 runtime phase 的协调，并把 App 内轮询等待改为 DispatchSourceTimer；UIKit 亮度读取仍在 MainActor，VPN 调度不变。`.inactive` 不再直接触发监听睡眠，实际后台且没有确认保活时仍 sleep。
 

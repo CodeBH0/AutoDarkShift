@@ -2,7 +2,7 @@ import Foundation
 
 enum MonitoringBusiness: String, Codable, Equatable {
     case standard
-    case message
+    case app
 }
 
 /// Serializes the two businesses and enables one only after the other reports
@@ -10,20 +10,20 @@ enum MonitoringBusiness: String, Codable, Equatable {
 @MainActor final class ExclusiveMonitoringBusiness {
     private let standard: any MonitoringClient
     private let standardStore: any MonitorStore
-    private let message: any MonitoringClient
-    private let messageStore: any MonitorStore
-    private let preflightMessage: () throws -> Void
+    private let app: any MonitoringClient
+    private let appStore: any MonitorStore
+    private let preflightApp: () throws -> Void
     private var operation: Task<MonitorReply?, Error>?
     private var operationID: UUID?
 
     init(standard: any MonitoringClient, standardStore: any MonitorStore,
-         message: any MonitoringClient, messageStore: any MonitorStore,
-         preflightMessage: @escaping () throws -> Void = {}) {
+         app: any MonitoringClient, appStore: any MonitorStore,
+         preflightApp: @escaping () throws -> Void = {}) {
         self.standard = standard
         self.standardStore = standardStore
-        self.message = message
-        self.messageStore = messageStore
-        self.preflightMessage = preflightMessage
+        self.app = app
+        self.appStore = appStore
+        self.preflightApp = preflightApp
     }
 
     func select(_ business: MonitoringBusiness?) async throws -> MonitorReply? {
@@ -31,13 +31,13 @@ enum MonitoringBusiness: String, Codable, Equatable {
     }
 
     /// Restores the persisted selection. If both stores claim to be enabled,
-    /// message wins and standard is durably disabled before contacting either host.
+    /// App wins and standard is durably disabled before contacting either host.
     func resumeSelected() async throws -> MonitorReply? {
         try await enqueue {
             let standardEnabled = try self.standardStore.configuration().isEnabled
-            let messageEnabled = try self.messageStore.configuration().isEnabled
-            let selected: MonitoringBusiness? = messageEnabled ? .message : (standardEnabled ? .standard : nil)
-            if standardEnabled && messageEnabled {
+            let appEnabled = try self.appStore.configuration().isEnabled
+            let selected: MonitoringBusiness? = appEnabled ? .app : (standardEnabled ? .standard : nil)
+            if standardEnabled && appEnabled {
                 try self.save(self.disabledConfiguration(in: self.standardStore), to: self.standardStore)
             }
             return try await self.performSelect(selected)
@@ -66,18 +66,18 @@ enum MonitoringBusiness: String, Codable, Equatable {
         // Establish the fail-closed state in persistent storage before any query
         // can reconcile and create a host. Save standard first for conflict recovery.
         let standardDisabled = try disabledConfiguration(in: standardStore)
-        let messageDisabled = try disabledConfiguration(in: messageStore)
+        let appDisabled = try disabledConfiguration(in: appStore)
         try save(standardDisabled, to: standardStore)
-        try save(messageDisabled, to: messageStore)
+        try save(appDisabled, to: appStore)
 
         var stoppedReply: MonitorReply?
         stoppedReply = try await stopAndConfirm(client: standard, store: standardStore,
                                                  disabled: standardDisabled) ?? stoppedReply
-        stoppedReply = try await stopAndConfirm(client: message, store: messageStore,
-                                                 disabled: messageDisabled) ?? stoppedReply
+        stoppedReply = try await stopAndConfirm(client: app, store: appStore,
+                                                 disabled: appDisabled) ?? stoppedReply
 
         guard let business else { return stoppedReply }
-        if business == .message { try preflightMessage() }
+        if business == .app { try preflightApp() }
         let targetStore = store(for: business)
         let targetClient = client(for: business)
         var enabled = try targetStore.configuration()
@@ -172,10 +172,10 @@ enum MonitoringBusiness: String, Codable, Equatable {
     }
 
     private func client(for business: MonitoringBusiness) -> any MonitoringClient {
-        business == .standard ? standard : message
+        business == .standard ? standard : app
     }
 
     private func store(for business: MonitoringBusiness) -> any MonitorStore {
-        business == .standard ? standardStore : messageStore
+        business == .standard ? standardStore : appStore
     }
 }

@@ -77,13 +77,15 @@ for item in objects.values():
 
 targets = {objects[key]["name"]: objects[key] for key in root["targets"]}
 assert set(targets) == {"AutoDarkShift", "PacketTunnel", "AutoDarkShiftCoreTests"}
+tunnel_only_platform = {"Platform/ScreenBrightnessSampler.swift"}
+app_only_platform = {"Platform/BackBoardBrightnessProbe.swift", "Platform/BackBoardBrightnessSampler.swift"}
 expected_sources = {
     "AutoDarkShift": {str(p.relative_to(ROOT)) for folder in ["App", "KeepAlive", "Shared", "Monitoring", "Platform"]
-                      for p in (ROOT / folder).glob("*.swift")},
+                      for p in (ROOT / folder).glob("*.swift")} - tunnel_only_platform,
     "PacketTunnel": {str(p.relative_to(ROOT)) for folder in ["PacketTunnel", "Shared", "Monitoring", "Platform"]
-                     for p in (ROOT / folder).glob("*.swift")},
+                     for p in (ROOT / folder).glob("*.swift")} - app_only_platform,
     "AutoDarkShiftCoreTests": {str(p.relative_to(ROOT)) for folder in ["Tests", "Shared", "Monitoring"]
-                              for p in (ROOT / folder).glob("*.swift")} | {"Platform/LoopbackMonitorTransport.swift"},
+                              for p in (ROOT / folder).glob("*.swift")} | {"Platform/LoopbackMonitorTransport.swift"} | app_only_platform,
 }
 for name, target in targets.items():
     phases = [objects[key] for key in target["buildPhases"]]
@@ -166,6 +168,17 @@ with (ROOT / "App/Info.plist").open("rb") as source:
     app_info = plistlib.load(source)
 assert set(app_info.get("UIBackgroundModes", [])) == {"audio", "location"}
 assert app_info.get("NSLocationWhenInUseUsageDescription") and app_info.get("NSLocationAlwaysAndWhenInUseUsageDescription")
+# Input APIs are process-specific; the retired typed-message sampler stays absent.
+assert not (ROOT / "App/ScreenBrightnessMessageSampler.swift").exists()
+app_composition = (ROOT / "App/AppComposition.swift").read_text(encoding="utf-8")
+assert "BackBoardBrightnessSampler(" in app_composition
+assert "UIScreen.main.brightness" not in app_composition
+assert "ScreenBrightnessSampler(" not in app_composition
+for path in app_only_platform:
+    text = (ROOT / path).read_text(encoding="utf-8")
+    assert "UIKit" not in text and "UIScreen" not in text, path
+provider = (ROOT / "PacketTunnel/PacketTunnelProvider.swift").read_text(encoding="utf-8")
+assert "ScreenBrightnessSampler()" in provider and "BackBoard" not in provider and "BKS" not in provider
 # Retired benchmark sources must never enter the active targets or Swift Package.
 retired_symbols = ("PollingBoost", "PollingStatistics", "startPollingTest", "stopPollingTest",
                    "pollingTestID", "appendPollingResult", "readDuration", "effectivePollInterval")
