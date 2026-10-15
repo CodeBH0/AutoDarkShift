@@ -37,6 +37,7 @@ final class SwitchMonitor: MonitoringRuntime {
         self.diagnostic = diagnostic
         self.diagnosticContext = diagnosticContext
         let configuration = try store.configuration()
+        store.setLoggingEnabled(configuration.runtimeLoggingEnabled)
         let previous = try store.snapshot()
         let history = try store.history()
         machine = try BrightnessTrendStateMachine(configuration: configuration, history: history)
@@ -44,13 +45,16 @@ final class SwitchMonitor: MonitoringRuntime {
         counters.extensionStarts += 1
         snapshot = RuntimeSnapshot(instanceID: UUID().uuidString, history: history,
                                    appliedConfiguration: configuration, counters: counters)
-        try store.recoverBoostTraces(instanceID: snapshot.instanceID, at: clock())
+        if configuration.runtimeLoggingEnabled {
+            try store.recoverBoostTraces(instanceID: snapshot.instanceID, at: clock())
+        }
         boostTrace = BoostTraceRecorder(store: store, instanceID: snapshot.instanceID) { [weak self] detail in
             guard let self else { return }
             self.snapshot.lastError = "完整亮度日志写入失败：\(detail)"
             self.record("boost_trace_error", ["detail": detail])
             self.diagnostic(detail)
         }
+        boostTrace.setLoggingEnabled(configuration.runtimeLoggingEnabled)
         record("monitor_start", ["revision": configuration.revision])
         try store.saveSnapshot(snapshot)
     }
@@ -136,12 +140,20 @@ final class SwitchMonitor: MonitoringRuntime {
             if let expectedRevision, expectedRevision != configuration.revision {
                 throw ProjectError.message("配置版本已变化，请重新保存。")
             }
-            let wasEnabled = snapshot.appliedConfiguration.isEnabled
-            try machine.updateConfiguration(configuration)
-            boostTrace.interrupt(reason: "configuration_reload", at: clock())
+            let previous = snapshot.appliedConfiguration
+            let wasEnabled = previous.isEnabled
+            let loggingOnly = previous.runtimeLoggingEnabled != configuration.runtimeLoggingEnabled &&
+                previous.isEnabled == configuration.isEnabled && previous.cooldown == configuration.cooldown
+            let monitoringChanged = !loggingOnly
+            store.setLoggingEnabled(configuration.runtimeLoggingEnabled)
+            boostTrace.setLoggingEnabled(configuration.runtimeLoggingEnabled)
+            if monitoringChanged {
+                try machine.updateConfiguration(configuration)
+                boostTrace.interrupt(reason: "configuration_reload", at: clock())
+            }
             snapshot.appliedConfiguration = configuration
             record("configuration_applied", ["revision": configuration.revision])
-            if snapshot.phase == .running {
+            if monitoringChanged, snapshot.phase == .running {
                 if configuration.isEnabled {
                     removeSampling()
                     installSampling()
@@ -151,7 +163,7 @@ final class SwitchMonitor: MonitoringRuntime {
                     snapshot.heartbeatAt = nil
                     cancelUnsubmittedCandidate(detail: "自动外观切换已关闭；通知尚未提交。")
                 }
-            } else if !configuration.isEnabled {
+            } else if monitoringChanged, !configuration.isEnabled {
                 snapshot.heartbeatAt = nil
                 cancelUnsubmittedCandidate(detail: "自动外观切换已关闭；通知尚未提交。")
             }
@@ -272,7 +284,7 @@ final class SwitchMonitor: MonitoringRuntime {
         boostTrace.consume(reading, sample: snapshot.sample!, uptime: monotonicNow,
             previousInterval: activeInterval, nextInterval: machine.pollInterval, pollInterval: pollInterval,
             trend: machine.trend, enteredBoost: !wasDynamic && machine.trend?.dynamicSampling == true,
-            configuration: machine.configuration, desired: machine.desiredTarget, pending: machine.pendingTarget,
+            configuration: snapshot.appliedConfiguration, desired: machine.desiredTarget, pending: machine.pendingTarget,
             candidate: candidate, inFlight: machine.inFlight)
         // Keep accepted input current in memory even when disk writes are throttled.
         syncMachine()
@@ -416,6 +428,7 @@ final class SwitchMonitor: MonitoringRuntime {
     }
 
     private func record(_ event: String, _ fields: [String: String] = [:]) {
+        guard snapshot.appliedConfiguration.runtimeLoggingEnabled else { return }
         // Context is attached only at lifecycle/notification boundaries. Routine reads
         // and scores remain compact and are linked by their actual sample sequence.
         let needsContext = event.hasPrefix("monitor_") || event.hasPrefix("notification_")

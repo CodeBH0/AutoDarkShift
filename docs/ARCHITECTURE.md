@@ -2,6 +2,16 @@
 
 1.1.0 将监听固定为两条互斥路径：Packet Tunnel 在扩展进程使用原事件加动态轮询，App 内监控在主进程只轮询 `BKSDisplayBrightnessGetCurrent`。VPN、PiP、Location 是独立保活能力，可以同时开启；业务选择不会按 VPN 状态自动迁移进程。`silentAudio` 仅为枚举预留，没有注册服务、GUI 或实际音频播放。平台细节见 [KEEP_ALIVE.md](KEEP_ALIVE.md)，App 输入见 [BACKBOARD_MONITORING.md](BACKBOARD_MONITORING.md)。
 
+## 开发者界面与记录策略（build 3）
+
+`AppPreferences` 是主 App 的界面偏好层，仅持久化开发者模式，默认关闭，不进入数学模型、Packet Tunnel 或保活接口。`ControlView` 只创建一份偏好对象，信息页切换后仪表立即响应。仪表固定先显示监听方式，再显示当前状态；普通模式仅此两区，开发者模式才增加平级的“高级功能”（切换监听 / 通知与统计）及操作反馈。
+
+日志记录是独立运行配置 `MonitorConfiguration.runtimeLoggingEnabled`，默认关闭，旧配置缺少该字段也关闭。开发者模式开关不改变监听、保活或此前明确选择的日志状态。记录开关统一控制 App / Provider 诊断、运行 JSONL、Boost 及自动 Provider 缓存；配置随既有 profile / IPC 应用到两个进程。仅改日志开关的 reload 不重新安装采样、重置趋势或取消在途通知。关闭后既有文件保留可读，未落盘 Boost 缓冲丢弃，已有开放记录导出为不完整 trace；重新开启只记录之后的输入，不补造停记时段。
+
+快照、计数与成功通知历史是监控状态，仍按原规则保存。关闭记录不影响模型、通知或 GUI 状态读取；手动导出可以只读取得扩展历史并直接生成分享文件，不重新开启记录或保存新的 Provider 日志缓存。
+
+`NotificationAuthorizationService` 独立处理通知授权：首次处于 notDetermined 时申请 provisional 临时授权，前台与本地通知声音策略也保持安静；已有 authorized / denied 等设置不自动改写。高级页面中的主动请求才申请正式授权。系统授权、通知接受、实际展示和快捷指令执行继续分别评价。
+
 ## 依赖关系
 
 ```mermaid

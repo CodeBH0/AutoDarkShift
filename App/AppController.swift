@@ -44,6 +44,7 @@ final class AppController: ObservableObject {
     private let keepAlive: any KeepAliveService
     private let monitoring: any MonitoringClient
     private let diagnosticsStore: SharedStore?
+    private let notificationAuthorization: NotificationAuthorizationService
     private let record: (String, [String: String]) -> Void
     private var refreshTask: Task<Void, Never>?
     private var statusTask: Task<Void, Never>?
@@ -65,10 +66,12 @@ final class AppController: ObservableObject {
          keepAliveManager: KeepAliveManager? = nil, hostCoordinator: MonitoringHostCoordinator? = nil,
          pipService: PiPKeepAliveService? = nil,
          appCoordinator: MonitoringHostCoordinator? = nil, appStore: SharedStore? = nil,
-         businesses: ExclusiveMonitoringBusiness? = nil, appSetupError: String? = nil) {
+         businesses: ExclusiveMonitoringBusiness? = nil, appSetupError: String? = nil,
+         notificationAuthorization: NotificationAuthorizationService? = nil) {
         self.keepAlive = keepAlive
         self.monitoring = monitoring
         self.diagnosticsStore = diagnostics
+        self.notificationAuthorization = notificationAuthorization ?? NotificationAuthorizationService()
         self.record = record
         self.keepAliveManager = keepAliveManager ?? KeepAliveManager(services: [(.vpn, keepAlive)])
         self.hostCoordinator = hostCoordinator
@@ -88,6 +91,8 @@ final class AppController: ObservableObject {
             if let appStore { appConfiguration = try appStore.configuration() }
             appMonitoringEnabled = appConfiguration.isEnabled
         } catch { self.storageError = describeError(error) }
+        store?.setLoggingEnabled(configuration.runtimeLoggingEnabled)
+        diagnostics?.setLoggingEnabled(configuration.runtimeLoggingEnabled)
         if let appSetupError { self.appError = "App 内监控未就绪：\(appSetupError)" }
         record("app_launch", ["storageMode": self.storageMode.rawValue,
                               "identity": String(describing: RuntimeIdentity.installed(storageMode: self.storageMode)),
@@ -122,6 +127,8 @@ final class AppController: ObservableObject {
         }
         acceptState(keepAlive.state)
         Task {
+            do { try await self.notificationAuthorization.requestInitialAuthorizationIfNeeded() }
+            catch { self.appError = "首次通知授权未完成：\(describeError(error))" }
             await self.keepAliveManager.refresh()
             do {
                 if let businesses { _ = try await businesses.resumeSelected() }
@@ -141,6 +148,7 @@ final class AppController: ObservableObject {
 
     var keepAliveName: String { keepAlive.name }
     var businessControlsDisabled: Bool { busy || vpnOperation != nil || !businessReady }
+    var runtimeLoggingEnabled: Bool { configuration.runtimeLoggingEnabled }
     var appMonitoringAvailable: Bool { businesses != nil }
     var displayedSnapshot: RuntimeSnapshot? { appMonitoringEnabled ? appSnapshot : snapshot }
     var displayedRuntimeConfirmed: Bool {
@@ -292,7 +300,7 @@ final class AppController: ObservableObject {
 
     func requestNotifications() {
         run {
-            let allowed = try await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge])
+            let allowed = try await self.notificationAuthorization.requestAuthorization()
             await self.refreshAuthorization()
             self.message = allowed ? "通知授权成功。" : "未获得通知权限；扩展仍会采样。"
         }
@@ -507,7 +515,7 @@ final class AppController: ObservableObject {
 
     private func scheduleDiagnosticSync() {
         let interval: TimeInterval = 15
-        guard diagnosticTask == nil, canReadMonitoring, usesVPNMonitoring,
+        guard runtimeLoggingEnabled, diagnosticTask == nil, canReadMonitoring, usesVPNMonitoring,
               Date().timeIntervalSince(lastDiagnosticSyncAt) >= interval else { return }
         let token = sessionGeneration
         lastDiagnosticSyncAt = Date()
@@ -569,10 +577,17 @@ final class AppController: ObservableObject {
             guard let store = self.store else { throw ProjectError.message("运行存储不可用。") }
             try store.saveConfiguration(saved)
             self.configuration = saved
+            store.setLoggingEnabled(saved.runtimeLoggingEnabled)
+            self.diagnosticsStore?.setLoggingEnabled(saved.runtimeLoggingEnabled)
+            if !saved.runtimeLoggingEnabled {
+                self.diagnosticTask?.cancel()
+                self.diagnosticTask = nil
+            }
             try await self.monitoring.persistConfigurationForNextStart(saved)
             if let appStore = self.appStore {
                 var appConfiguration = try appStore.configuration()
                 appConfiguration.cooldown = saved.cooldown
+                appConfiguration.runtimeLoggingEnabled = saved.runtimeLoggingEnabled
                 appConfiguration.revision = UUID().uuidString
                 try appStore.saveConfiguration(appConfiguration.validated())
                 self.appConfiguration = appConfiguration
@@ -607,6 +622,12 @@ final class AppController: ObservableObject {
                 self.message = "配置已保存，下次监听启动时应用。"
             }
         }
+    }
+
+    func setRuntimeLoggingEnabled(_ enabled: Bool) {
+        guard !busy, enabled != configuration.runtimeLoggingEnabled else { return }
+        configuration.runtimeLoggingEnabled = enabled
+        saveConfiguration()
     }
 
     func queryMonitoring() {
@@ -646,7 +667,9 @@ final class AppController: ObservableObject {
             let content = UNMutableNotificationContent()
             content.title = "AutoDarkShift.Test"
             content.body = "测试通知：系统接受请求不代表外部快捷指令已经执行。"
-            content.sound = .default
+            if settings.authorizationStatus != .provisional, settings.soundSetting == .enabled {
+                content.sound = .default
+            }
             let identifier = "AutoDarkShift.Test.\(UUID().uuidString)"
             do {
                 try await center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
@@ -665,7 +688,13 @@ final class AppController: ObservableObject {
         run {
             self.record("export_requested", ["stream": stream.rawValue])
             var syncFailures: [MonitorLogStream: String] = [:]
-            if self.canReadMonitoring && (!self.usesVPNMonitoring || self.storageMode == .localIPC || stream == .runtime) {
+            var directProviderLogs: String?
+            if self.canReadMonitoring && !self.runtimeLoggingEnabled {
+                // Export retained remote records without creating a persistent cache
+                // while recording is disabled.
+                do { directProviderLogs = try await self.monitoring.diagnostics(stream: stream) }
+                catch { syncFailures[stream] = describeError(error) }
+            } else if self.canReadMonitoring && (!self.usesVPNMonitoring || self.storageMode == .localIPC || stream == .runtime) {
                 do { try await self.syncProviderDiagnostics(stream: stream) }
                 catch {
                     if error is CancellationError { throw error }
@@ -685,6 +714,7 @@ final class AppController: ObservableObject {
                 "monitorHost": self.appMonitoringEnabled ? "App BKS 轮询" : self.hostCoordinator?.hostName ?? "VPN 扩展",
                 "autoDarkShiftEnabled": String(self.autoDarkShiftEnabled),
                 "appMonitoringEnabled": String(self.appMonitoringEnabled),
+                "runtimeLoggingEnabled": String(self.runtimeLoggingEnabled),
                 "runtimeConfirmed": String(self.displayedRuntimeConfirmed), "runtimeError": self.runtimeError ?? "none",
                 "readbackAvailability": self.readback.availability.rawValue,
                 "readbackDetail": self.readback.issue ?? "none",
@@ -703,7 +733,8 @@ final class AppController: ObservableObject {
             do {
                 guard let store = self.store else { throw ProjectError.message(self.storageError ?? "日志存储不可用。") }
                 data.append(try store.exportData(metadata: ["scope": self.storageMode == .appGroup ? "shared_runtime" : "app_runtime_cache"],
-                    stream: stream, includeProviderCache: stream == .runtime || self.storageMode == .localIPC || !self.usesVPNMonitoring))
+                    stream: stream, includeProviderCache: directProviderLogs == nil &&
+                        (stream == .runtime || self.storageMode == .localIPC || !self.usesVPNMonitoring)))
             } catch {
                 try self.appendExportEvent("\(stream.rawValue)_logs_unavailable", fields: ["error": describeError(error)], to: &data)
             }
@@ -716,7 +747,10 @@ final class AppController: ObservableObject {
                 catch { try self.appendExportEvent("backboard_monitor_logs_unavailable", fields: ["error": describeError(error)], to: &data) }
             }
             var stateData = Data()
-            if stream == .boost, self.storageMode == .appGroup, self.usesVPNMonitoring {
+            if let directProviderLogs {
+                data.append(Data(directProviderLogs.utf8))
+                try self.appendExportEvent("provider_logs_direct_export", fields: ["persistentCache": "false"], to: &stateData)
+            } else if stream == .boost, self.storageMode == .appGroup, self.usesVPNMonitoring {
                 try self.appendExportEvent("boost_logs_sync_state", fields: ["source": "shared_runtime", "liveSync": "direct_read"], to: &stateData)
             } else {
                 do {
@@ -756,7 +790,7 @@ final class AppController: ObservableObject {
         case .notDetermined: authorization = "尚未请求"
         case .denied: authorization = "已拒绝"
         case .authorized: authorization = "已授权"
-        case .provisional: authorization = "临时授权（可能静默显示）"
+        case .provisional: authorization = "临时授权（安静送达）"
         case .ephemeral: authorization = "短时授权"
         @unknown default: authorization = "未知状态"
         }

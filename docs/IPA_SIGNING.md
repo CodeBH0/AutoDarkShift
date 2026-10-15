@@ -1,8 +1,18 @@
 # iPhone 重签 IPA
 
-当前源码与本轮交付固定为 **1.1.0 / build 2**。App 内监控使用 `BKSDisplayBrightnessGetCurrent` 纯轮询；Packet Tunnel 保留原 UIScreen 事件加轮询。两路最低系统均为 iOS 17，已删除类型化亮度消息，不再要求 iOS 26。App 与扩展仍需你在手机侧分别重签。
+当前交付为 **1.1.0 / build 3**，已恢复正常 build 递增。开发者模式与日志默认关闭，首次通知尝试临时授权；App 的 BKS 输入和扩展的 UIScreen 输入边界保持。
 
-## 1.1.0 / build 2 当前未签名包
+## 1.1.0 / build 3 当前未签名包
+
+- 文件：`build/AutoDarkShift-1.1.0-build3-unsigned.ipa`，973978 字节。
+- SHA-256：`a5325ff55fe411eae2bd0316aa29bec59db934a28ef0d4190f00ca8d33ac54f3`，另有 `.ipa.sha256`。
+- 主 App / PacketTunnel 同为 arm64、1.1.0 / build 3、最低 iOS 17；两个组件均完全无签名，需手机侧分别重签。
+- 权限参考在 `build/1.1.0/build3/Signing/`；标识符 / 分组同步及 Network Extension 描述文件要求仍见下方规则。
+- 本轮仅 5 项日志针对性测试及 iPhone 编译 / 包核对，不运行全量回归；系统授权、GUI 和真实后台仍待测试。
+
+本次命令为 `bash tools/package_ipa.sh --direct-sdk --unsigned`，从 build 2 正常递增，原 build 1 / 2 包和校验值保留。核对报告在 `build/1.1.0/build3/ipa-verification.json`；设备操作见 [当前验收入口](DEVICE_ACCEPTANCE.md)。未使用证书或 ad-hoc 签名，未安装或下载模拟器 / 虚拟机。
+
+## 1.1.0 / build 2 历史未签名包
 
 - 文件：`build/AutoDarkShift-1.1.0-build2-unsigned.ipa`，949894 字节。
 - SHA-256：`337cd9e48530ca962eed48eff4d61a33a785b3722215c6738b7b8e60dbcb406a`，另有 `.ipa.sha256`。

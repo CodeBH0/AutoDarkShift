@@ -8,6 +8,8 @@ final class SharedStore: MonitorStore {
     private let maxLogBytes = 256 * 1024
     private let logFileCount = 4
     private let files = FileManager.default
+    private let loggingLock = NSRecursiveLock()
+    private var loggingEnabled = false
 
     convenience init() throws {
 #if os(iOS)
@@ -40,6 +42,17 @@ final class SharedStore: MonitorStore {
                 throw ProjectError.message("存储读写检查失败。")
             }
         }
+    }
+
+    var isLoggingEnabled: Bool {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        return loggingEnabled
+    }
+
+    /// Instance-local policy; existing diagnostics remain readable while recording is off.
+    func setLoggingEnabled(_ enabled: Bool) {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        loggingEnabled = enabled
     }
 
     private static var writeOptions: Data.WritingOptions {
@@ -111,6 +124,8 @@ final class SharedStore: MonitorStore {
     }
 
     func saveProviderDiagnostics(_ text: String, stream: MonitorLogStream = .runtime) throws {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        guard loggingEnabled else { return }
         let data = Data(text.utf8)
         guard (stream == .boost || !data.isEmpty), data.count <= MonitorWire.maximumDiagnosticBytes else {
             throw ProjectError.message("扩展日志缓存为空或超过容量。")
@@ -153,6 +168,8 @@ final class SharedStore: MonitorStore {
     private func logURL(_ index: Int, prefix: String = "runtime") -> URL { url("\(prefix)-\(index).jsonl") }
 
     func append(_ record: LogRecord) throws {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        guard loggingEnabled else { return }
         try append(record, prefix: "runtime", maxBytes: maxLogBytes, fileCount: logFileCount)
     }
 
@@ -199,6 +216,8 @@ final class SharedStore: MonitorStore {
 
     /// Independent full-resolution Boost captures. Open files are never rotated away.
     func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        guard loggingEnabled else { return }
         guard UUID(uuidString: id) != nil else { throw ProjectError.message("亮度日志编号无效。") }
         var data = Data()
         for record in records {
@@ -272,6 +291,8 @@ final class SharedStore: MonitorStore {
 
     /// A new listener closes orphan captures; opening an App store does not interrupt a live trace.
     func recoverBoostTraces(instanceID: String, at date: Date) throws {
+        loggingLock.lock(); defer { loggingLock.unlock() }
+        guard loggingEnabled else { return }
         try locked(exclusive: true) {
             for path in try boostTracePaths() where path.lastPathComponent.contains(".open.") {
                 let id = String(path.lastPathComponent.dropFirst("boost-trace-".count).dropLast(".open.jsonl".count))

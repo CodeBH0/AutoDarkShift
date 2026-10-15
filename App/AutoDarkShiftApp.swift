@@ -6,7 +6,22 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification,
                                 withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        center.getNotificationSettings { settings in
+            // Trial notifications must remain quiet even while the App is open.
+            if settings.authorizationStatus == .provisional {
+                completionHandler([.list])
+                return
+            }
+            guard [.authorized, .ephemeral].contains(settings.authorizationStatus) else {
+                completionHandler([])
+                return
+            }
+            var options: UNNotificationPresentationOptions = []
+            if settings.notificationCenterSetting == .enabled { options.insert(.list) }
+            if settings.alertSetting == .enabled { options.insert(.banner) }
+            if settings.soundSetting == .enabled { options.insert(.sound) }
+            completionHandler(options)
+        }
     }
 }
 

@@ -3,10 +3,34 @@ import SwiftUI
 @MainActor
 struct DashboardView: View {
     @ObservedObject var controller: AppController
+    @ObservedObject var preferences: AppPreferences
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Packet Tunnel 监控", isOn: Binding(
+                    get: { controller.autoDarkShiftEnabled },
+                    set: { controller.setAutoDarkShiftEnabled($0) }
+                ))
+                .disabled(controller.businessControlsDisabled)
+
+                Toggle("App 内监控", isOn: Binding(
+                    get: { controller.appMonitoringEnabled },
+                    set: { controller.setAppMonitoringEnabled($0) }
+                ))
+                .disabled(controller.businessControlsDisabled || !controller.appMonitoringAvailable)
+            } header: { Text("监听方式") } footer: {
+                if preferences.developerModeEnabled {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("两条路径互斥。Packet Tunnel 需要 VPN 连接；App 内监控使用 BKS 轮询，后台执行许可来自 PiP 或 Location。")
+                        if !controller.appMonitoringAvailable {
+                            Text("App 内监控当前不可用。")
+                        }
+                    }
+                }
+            }
+
             Section("当前状态") {
                 LabeledContent("当前监听", value: controller.activeBusinessText)
                 LabeledContent("监听状态", value: controller.samplingText)
@@ -30,38 +54,22 @@ struct DashboardView: View {
                 LabeledContent("当前 App 可见外观", value: colorScheme == .dark ? "深色" : "浅色")
             }
 
-            Section("监听方式") {
-                Toggle("Packet Tunnel 监控", isOn: Binding(
-                    get: { controller.autoDarkShiftEnabled },
-                    set: { controller.setAutoDarkShiftEnabled($0) }
-                ))
-                .disabled(controller.businessControlsDisabled)
-
-                Toggle("App 内监控", isOn: Binding(
-                    get: { controller.appMonitoringEnabled },
-                    set: { controller.setAppMonitoringEnabled($0) }
-                ))
-                .disabled(controller.businessControlsDisabled || !controller.appMonitoringAvailable)
-                Text("两条路径互斥，开启一条会先停止另一条。Packet Tunnel 需要 VPN 连接；App 内监控使用 BKS 轮询，后台执行许可来自 PiP 或 Location。")
-                    .font(.caption).foregroundStyle(.secondary)
-                if !controller.appMonitoringAvailable {
-                    Text("App 内监控当前不可用。")
-                        .font(.caption).foregroundStyle(.secondary)
+            if preferences.developerModeEnabled {
+                Section("高级功能") {
+                    NavigationLink {
+                        MonitoringMenuView(controller: controller)
+                    } label: {
+                        Label("切换监听", systemImage: "waveform.path")
+                    }
+                    NavigationLink {
+                        NotificationStatsMenuView(controller: controller)
+                    } label: {
+                        Label("通知与统计", systemImage: "bell.badge")
+                    }
                 }
 
-                NavigationLink {
-                    MonitoringMenuView(controller: controller)
-                } label: {
-                    Label("切换监听", systemImage: "waveform.path")
-                }
-                NavigationLink {
-                    NotificationStatsMenuView(controller: controller)
-                } label: {
-                    Label("通知与统计", systemImage: "bell.badge")
-                }
+                ControllerFeedbackView(controller: controller)
             }
-
-            ControllerFeedbackView(controller: controller)
         }
         .navigationTitle("仪表")
         .scrollDismissesKeyboard(.interactively)

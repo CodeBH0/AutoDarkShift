@@ -29,6 +29,7 @@ import Foundation
     private let failed: (String) -> Void
     private var prelude: [Observation] = []
     private var captures: [Capture] = []
+    private var loggingEnabled = false
     var activeIDs: [String] { captures.map(\.id) }
 
     init(store: any MonitorStore, instanceID: String, failed: @escaping (String) -> Void) {
@@ -37,11 +38,21 @@ import Foundation
         self.failed = failed
     }
 
+    /// Dropping diagnostics never changes the monitor or writes a final line after disabling.
+    func setLoggingEnabled(_ enabled: Bool) {
+        loggingEnabled = enabled
+        if !enabled {
+            captures.removeAll()
+            prelude.removeAll()
+        }
+    }
+
     func consume(_ reading: BrightnessReading, sample: SampleSnapshot, uptime: TimeInterval,
                  previousInterval: TimeInterval, nextInterval: TimeInterval, pollInterval: TimeInterval?,
                  trend: BrightnessTrendSnapshot?, enteredBoost: Bool,
                  configuration: MonitorConfiguration, desired: DisplayMode?, pending: DisplayMode?,
                  candidate: NotificationCandidate?, inFlight: NotificationCandidate?) {
+        guard loggingEnabled else { return }
         guard MonitorConfiguration.validBrightness(reading.value), uptime.isFinite else {
             interrupt(reason: "invalid_sample", at: reading.timestamp)
             return
@@ -146,6 +157,7 @@ import Foundation
     }
 
     func flush() {
+        guard loggingEnabled else { return }
         captures = captures.compactMap { capture in
             var copy = capture
             return write(&copy, finished: false) ? copy : nil
@@ -153,6 +165,7 @@ import Foundation
     }
 
     func interrupt(reason: String, at date: Date) {
+        guard loggingEnabled else { return }
         for var capture in captures {
             capture.buffer.append(end(capture, at: date, reason: reason, complete: false))
             _ = write(&capture, finished: true)

@@ -1,4 +1,21 @@
-# 验证记录（当前源码 1.1.0 / build 2）
+# 验证记录（当前源码 1.1.0 / build 3）
+
+## 2026-10-14 开发者模式、按需日志与首次临时授权（1.1.0 / build 3）
+
+信息页增加独立 AppPreferences 开发者模式，默认关闭并持久化；仪表调整为监听方式在前、当前状态在后，普通模式只有这两区，高级入口和操作反馈仅在开发者模式显示。记录运行日志默认关闭，App / Provider / Boost / 自动缓存均遵守开关，状态和成功历史继续持久；日志单独变更不改变采样及通知生命周期。
+
+首次 notDetermined 通过独立服务申请 provisional，前台展示和通知声音遵守临时授权的安静策略；升级已有权限不改写。该行为使用 [Apple 通知授权接口](https://developer.apple.com/documentation/usernotifications/asking-permission-to-use-notifications)，实际系统状态和送达仍需设备验证。
+
+| 检查 | 本轮实际范围 |
+| --- | --- |
+| 工程 / 空白 / 脚本 | 通过：217 个对象、62 个文件、两个共享 Scheme；validate_project.py、git diff --check、bash -n 通过 |
+| 最小针对性测试 | 仅执行 RuntimeLoggingTests 的 5 项，全部通过：旧配置默认关闭、关闭后业务与状态正常、双流开关及再开、在途授权保留、Store / 缓存 / 孤立记录门控 |
+| 未执行测试 | 未运行全量 core checks 或其余 XCTest；91 个方法仅表示源码提供数量，不是本轮执行数量 |
+| iPhone / IPA | Xcode 26.3、SDK 26.2，App / PacketTunnel arm64 Release 编译成功；同为 1.1.0 / build 3，最低 iOS 17 |
+| 包边界与无签名 | ZIP 完整，两个组件无 LC_CODE_SIGNATURE / 签名目录 / 描述文件；BKS 仅存在于主 App，旧亮度消息不含；build 1 / 2 原包校验不变 |
+| 真机 | 开发者模式交互、两进程记录开关、首次系统临时授权、后台及安静展示均未执行 |
+
+恢复正常打包编号，运行 `bash tools/package_ipa.sh --direct-sdk --unsigned` 从 2 自动递增至 3；没有使用证书或本地 ad-hoc 签名，没有安装模拟器或虚拟机。过程记录在 `build/validation-1.1.0-build3/`，包核对在 `build/1.1.0/build3/ipa-verification.json`。文件 `973978` 字节，SHA-256 `a5325ff55fe411eae2bd0316aa29bec59db934a28ef0d4190f00ca8d33ac54f3`。构建仍有既有 NetworkExtension Sendable 警告，未切换 Swift 6 严格并发模式。
 
 ## 2026-10-14 App 改用 BKS 纯轮询（1.1.0 / build 2）
 

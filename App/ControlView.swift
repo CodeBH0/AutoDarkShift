@@ -4,13 +4,14 @@ import UIKit
 @MainActor
 struct ControlView: View {
     @StateObject private var controller = AppComposition.makeController()
+    @StateObject private var preferences = AppPreferences()
     @Environment(\.scenePhase) private var scenePhase
     @State private var showingExport = false
 
     var body: some View {
         TabView {
             NavigationStack {
-                DashboardView(controller: controller)
+                DashboardView(controller: controller, preferences: preferences)
             }
             .tabItem { Label("仪表", systemImage: "speedometer") }
 
@@ -20,7 +21,7 @@ struct ControlView: View {
             .tabItem { Label("保活", systemImage: "bolt.heart") }
 
             NavigationStack {
-                InformationView()
+                InformationView(preferences: preferences)
             }
             .tabItem { Label("信息", systemImage: "info.circle") }
         }

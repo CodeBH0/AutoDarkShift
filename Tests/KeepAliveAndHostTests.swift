@@ -458,7 +458,7 @@ final class KeepAliveAndHostTests: XCTestCase {
 }
 
 private final class HostStore: MonitorStore {
-    var config = MonitorConfiguration()
+    var config = MonitorConfiguration(runtimeLoggingEnabled: true)
     var savedHistory: SubmissionHistory?
     var savedSnapshot: RuntimeSnapshot?
     var records: [LogRecord] = []

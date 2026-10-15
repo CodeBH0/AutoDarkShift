@@ -43,4 +43,4 @@
 
 新运行快照 schemaVersion=3。旧快照可读，但旧 speed 使用 v1 含义，界面按版本区分。新 `filteredBrightness` 和 `projectedBrightness` 记录接受值/预测位置；旧快照可缺省。配置只保留 revision 和冷却，旧阈值/固定轮询/实验参数不参与。
 
-主 App/扩展共享版本与 build；本轮固定为 1.1.0 / build 2，不继续迭代编号，通信继续校验身份。实际验证范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，真机行为按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 记录。
+主 App/扩展共享版本与 build；build 3 起恢复正常递增，通信继续校验身份。运行及 Boost 记录默认关闭，显式开启日志后才记录。实际验证范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，真机行为按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 记录。

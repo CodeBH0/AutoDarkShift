@@ -9,20 +9,24 @@ struct MonitorConfiguration: Codable, Equatable {
     var revision: String
     var cooldown: TimeInterval
     var isEnabled: Bool
+    var runtimeLoggingEnabled: Bool
 
-    init(revision: String = UUID().uuidString, cooldown: TimeInterval = 3, isEnabled: Bool = true) {
+    init(revision: String = UUID().uuidString, cooldown: TimeInterval = 3, isEnabled: Bool = true,
+         runtimeLoggingEnabled: Bool = false) {
         self.revision = revision
         self.cooldown = cooldown
         self.isEnabled = isEnabled
+        self.runtimeLoggingEnabled = runtimeLoggingEnabled
     }
 
-    private enum CodingKeys: String, CodingKey { case revision, cooldown, isEnabled }
+    private enum CodingKeys: String, CodingKey { case revision, cooldown, isEnabled, runtimeLoggingEnabled }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         revision = try values.decode(String.self, forKey: .revision)
         cooldown = try values.decode(TimeInterval.self, forKey: .cooldown)
         isEnabled = try values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        runtimeLoggingEnabled = try values.decodeIfPresent(Bool.self, forKey: .runtimeLoggingEnabled) ?? false
     }
 
     func validated() throws -> Self {

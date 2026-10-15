@@ -82,6 +82,7 @@ enum MonitoringBusiness: String, Codable, Equatable {
         let targetClient = client(for: business)
         var enabled = try targetStore.configuration()
         enabled.cooldown = try standardStore.configuration().cooldown
+        enabled.runtimeLoggingEnabled = try standardStore.configuration().runtimeLoggingEnabled
         enabled.isEnabled = true
         enabled.revision = UUID().uuidString
         try targetStore.saveConfiguration(try enabled.validated())

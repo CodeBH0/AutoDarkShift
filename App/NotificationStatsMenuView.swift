@@ -59,12 +59,19 @@ struct NotificationStatsMenuView: View {
                 Text("依据屏幕亮度相对于上一稳定状态的变化评分。评分未达切换条件时保持既有目标。")
             }
 
-            Section("日志导出") {
+            Section {
+                Toggle("记录运行日志", isOn: Binding(
+                    get: { controller.runtimeLoggingEnabled },
+                    set: { controller.setRuntimeLoggingEnabled($0) }
+                ))
+                .disabled(controller.businessControlsDisabled)
                 Button("导出运行日志") { controller.exportLogs(stream: .runtime) }
                     .disabled(controller.busy)
                 Button("导出 Boost 日志") { controller.exportLogs(stream: .boost) }
                     .disabled(controller.busy)
                 if controller.busy { ProgressView("处理中") }
+            } header: { Text("日志导出") } footer: {
+                Text("运行日志记录运行与 Boost 诊断。关闭后保留已有日志文件。")
             }
 
             ControllerFeedbackView(controller: controller)

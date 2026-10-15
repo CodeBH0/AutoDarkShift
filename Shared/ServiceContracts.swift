@@ -16,6 +16,7 @@ extension MonitoringClient {
 }
 
 protocol MonitorStore: AnyObject {
+    func setLoggingEnabled(_ enabled: Bool)
     func configuration() throws -> MonitorConfiguration
     func saveConfiguration(_ configuration: MonitorConfiguration) throws
     func snapshot() throws -> RuntimeSnapshot?
@@ -25,6 +26,10 @@ protocol MonitorStore: AnyObject {
     func append(_ record: LogRecord) throws
     func appendBoostTrace(id: String, records: [LogRecord], finished: Bool) throws
     func recoverBoostTraces(instanceID: String, at: Date) throws
+}
+
+extension MonitorStore {
+    func setLoggingEnabled(_ enabled: Bool) {}
 }
 
 struct BrightnessReading {

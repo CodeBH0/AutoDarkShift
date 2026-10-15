@@ -277,7 +277,7 @@ final class BackBoardBrightnessSamplerTests: XCTestCase {
 }
 
 private final class BackBoardTestStore: MonitorStore {
-    var config = MonitorConfiguration(cooldown: 0)
+    var config = MonitorConfiguration(cooldown: 0, runtimeLoggingEnabled: true)
     var savedSnapshot: RuntimeSnapshot?
     var savedHistory: SubmissionHistory?
     var records: [LogRecord] = []

@@ -37,6 +37,6 @@ App 重新启用完整 Boost：保存触发前真实五秒上下文、触发后�
 
 ## 当前交付与验收
 
-本轮固定 **1.1.0 / build 2**，不继续迭代编号。构建 / 回归 / 未签名 IPA 的实际范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md) 与 [IPA_SIGNING.md](IPA_SIGNING.md)。不以历史 1.0.3 / build 2 的打包或读数结论替代当前结果。
+BKS 输入建立于 **1.1.0 / build 2**；build 3 起恢复正常递增，并默认关闭运行 / Boost 记录。需要日志时，先在信息页开启开发者模式，再在高级功能的通知与统计页开启记录。构建 / 回归 / 未签名 IPA 的实际范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md) 与 [IPA_SIGNING.md](IPA_SIGNING.md)。不以历史 1.0.3 / build 2 的打包或读数结论替代当前结果。
 
 按 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 的当前专项，分别验证前台、仅 PiP、仅 Location、无 App 保活、VPN 同开以及快速切路径和系统重连。记录真实调亮度时间、getter 调用及值、S、通知接受、实际展示和外观。本版本全部设备专项待实测，不以编译或模拟输入填写通过。

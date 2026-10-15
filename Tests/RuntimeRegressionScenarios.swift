@@ -75,7 +75,7 @@ import Foundation
 
     private static func fixture(cooldown: Double = 0) throws -> Fixture {
         let store = MemoryStore()
-        store.config = MonitorConfiguration(cooldown: cooldown)
+        store.config = MonitorConfiguration(cooldown: cooldown, runtimeLoggingEnabled: true)
         let sampler = FakeSampler()
         let sink = FakeNotifications()
         let clock = TestClock()
@@ -97,7 +97,7 @@ import Foundation
 
     private static func disabledStartupLifecycle() async throws {
         let store = MemoryStore()
-        store.config = MonitorConfiguration(isEnabled: false)
+        store.config = MonitorConfiguration(isEnabled: false, runtimeLoggingEnabled: true)
         let sampler = FakeSampler()
         let runtime = try SwitchMonitor(store: store, sampler: sampler, notifications: FakeNotifications())
         try runtime.start()
@@ -128,7 +128,7 @@ import Foundation
 
         let staleCallback = f.sampler.receive
         let startsBeforeDisable = f.sampler.starts
-        f.store.config = MonitorConfiguration(revision: "disabled", cooldown: 0, isEnabled: false)
+        f.store.config = MonitorConfiguration(revision: "disabled", cooldown: 0, isEnabled: false, runtimeLoggingEnabled: true)
         let disabled = f.runtime.reload(expectedRevision: "disabled")
         try require(disabled.success && f.runtime.snapshot.phase == .running && !f.sampler.active
                     && f.runtime.snapshot.activePollInterval == nil && f.runtime.snapshot.heartbeatAt == nil,
@@ -145,7 +145,7 @@ import Foundation
                     && f.runtime.snapshot.heartbeatAt == nil,
                     "disabled wake leaves the independent runtime ready without polling")
 
-        f.store.config = MonitorConfiguration(revision: "enabled", cooldown: 0, isEnabled: true)
+        f.store.config = MonitorConfiguration(revision: "enabled", cooldown: 0, isEnabled: true, runtimeLoggingEnabled: true)
         let enabled = f.runtime.reload(expectedRevision: "enabled")
         try require(enabled.success && f.sampler.starts == startsBeforeDisable + 1
                     && f.sampler.active && f.sampler.interval == 1
@@ -165,7 +165,7 @@ import Foundation
         pending.sampler.emit(0.20, at: pending.clock.now, uptime: pending.clock.uptime)
         try require(pending.runtime.snapshot.submission?.result == .submitting,
                     "a qualifying sample waits for deferred notification authorization")
-        pending.store.config = MonitorConfiguration(revision: "off-pending", cooldown: 0, isEnabled: false)
+        pending.store.config = MonitorConfiguration(revision: "off-pending", cooldown: 0, isEnabled: false, runtimeLoggingEnabled: true)
         _ = pending.runtime.reload(expectedRevision: "off-pending")
         try require(pending.runtime.snapshot.submission?.result == .cancelled
                     && pending.runtime.snapshot.counters.notificationAttempts == 0,
@@ -282,7 +282,7 @@ import Foundation
         try f.runtime.start()
         f.clock.advance(1)
         f.sampler.emit(0.20, at: f.clock.now, uptime: f.clock.uptime)
-        f.store.config = MonitorConfiguration(revision: "new", cooldown: 0)
+        f.store.config = MonitorConfiguration(revision: "new", cooldown: 0, runtimeLoggingEnabled: true)
         let reply = f.runtime.reload(expectedRevision: "new")
         try require(reply.success && f.sampler.interval == 1, "configuration applies to scheduler")
         f.sink.completeAuthorization(true)
@@ -432,7 +432,9 @@ import Foundation
     private static func withStore(_ body: (SharedStore, URL) throws -> Void) throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        try body(SharedStore(directory: root), root)
+        let store = try SharedStore(directory: root)
+        store.setLoggingEnabled(true)
+        try body(store, root)
     }
     private static func storageRoundTrip() async throws {
         try withStore { store, root in
@@ -520,7 +522,7 @@ import Foundation
         var localIdentity = identity
         localIdentity.storageMode = RuntimeStorageMode.localIPC.rawValue
         let endpoint = MonitorControlEndpoint(identity: localIdentity, runtime: { f.runtime }, diagnostics: { "" }, configurationStore: f.store)
-        let configuration = MonitorConfiguration(revision: "ipc-new", cooldown: 2)
+        let configuration = MonitorConfiguration(revision: "ipc-new", cooldown: 2, runtimeLoggingEnabled: true)
         let before = f.runtime.snapshot.heartbeatAt
         let payload = try SharedJSON.encoder().encode(MonitorRequest(command: .reloadConfiguration,
             expectedRevision: configuration.revision, configuration: configuration))
@@ -1058,6 +1060,7 @@ import Foundation
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let store = try SharedStore(directory: root)
+        store.setLoggingEnabled(true)
         let id = UUID().uuidString
         var records = [LogRecord(instanceID: "provider", event: "boost_trace_start", fields: ["traceID": id])]
         for index in 0..<9000 {
@@ -1080,6 +1083,7 @@ import Foundation
         }
         try require(collected == source, "all trace pages reassemble exactly without applying runtime tail limits")
         let app = try SharedStore(directory: root.appendingPathComponent("app"))
+        app.setLoggingEnabled(true)
         try app.saveProviderDiagnostics(collected, stream: .boost)
         let offline = try SharedStore(directory: root.appendingPathComponent("app"))
         let export = String(decoding: try offline.exportData(metadata: [:], stream: .boost), as: UTF8.self)
@@ -1196,6 +1200,7 @@ import Foundation
             try require(runtime.contains("boost_trace_error") && !runtime.contains("boost_trace_start")
                         && boost.contains(id) && boost.contains("boost_trace_end") && !boost.contains("disk failure"),
                         "legacy Boost survives a runtime cache replacement and write failure stays in runtime export")
+            offline.setLoggingEnabled(true)
             try offline.saveProviderDiagnostics("", stream: .boost)
             try require(try offline.providerDiagnostics(stream: .boost) == "", "a complete empty Boost snapshot can explicitly replace prior retained data")
         }
@@ -1315,6 +1320,7 @@ import Foundation
             let exported = String(decoding: try reopened.exportData(metadata: [:]), as: UTF8.self)
             try require(exported.contains("provider_logs_cache_export") && exported.contains("monitor_ready"),
                         "offline JSONL export contains the actual provider records")
+            reopened.setLoggingEnabled(true)
             do { try reopened.saveProviderDiagnostics("{incomplete"); throw ProjectError.message("Expected malformed cache rejection") }
             catch { try require(!(error as NSError).localizedDescription.contains("Expected"), "partial reply never overwrites complete cache") }
             try require(try reopened.providerDiagnostics() == logs, "failed update preserves previous complete logs")
@@ -1356,7 +1362,7 @@ import Foundation
         for _ in 0..<100 where !ready && listenerError == nil { try await Task.sleep(nanoseconds: 10_000_000) }
         try require(ready, "actual loopback listener starts: \(listenerError ?? "timeout")")
         let client = LoopbackMonitorClient()
-        let configuration = MonitorConfiguration(revision: UUID().uuidString, cooldown: 2)
+        let configuration = MonitorConfiguration(revision: UUID().uuidString, cooldown: 2, runtimeLoggingEnabled: true)
         let applyData = try await client.send(SharedJSON.encoder().encode(MonitorRequest(command: .reloadConfiguration,
                                      expectedRevision: configuration.revision, configuration: configuration)), credentials: credentials)
         let applied = try SharedJSON.decoder().decode(MonitorReply.self, from: applyData)
@@ -1454,7 +1460,7 @@ private struct Fixture {
     let runtime: SwitchMonitor
 }
 private final class MemoryStore: MonitorStore {
-    var config = MonitorConfiguration()
+    var config = MonitorConfiguration(runtimeLoggingEnabled: true)
     var savedSnapshot: RuntimeSnapshot?
     var savedHistory: SubmissionHistory?
     var failSnapshot = false

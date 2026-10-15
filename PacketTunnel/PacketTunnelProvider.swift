@@ -9,6 +9,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     @MainActor private var sleepRequested = false
     @MainActor private var storageMode: RuntimeStorageMode = .appGroup
     @MainActor private var runtimeStore: SharedStore?
+    @MainActor private var runtimeLoggingEnabled = false
     @MainActor private var bridgeServer: LoopbackMonitorServer?
     @MainActor private let diagnosticPager = MonitorDiagnosticPager()
     private let logger = Logger(subsystem: "AutoDarkShift", category: "Provider")
@@ -24,6 +25,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }()
 
     @MainActor private func record(_ event: String, _ fields: [String: String] = [:]) {
+        if let monitor { runtimeLoggingEnabled = monitor.snapshot.appliedConfiguration.runtimeLoggingEnabled }
+        guard runtimeLoggingEnabled else { return }
+        diagnosticsStore?.setLoggingEnabled(true)
         logger.info("\(event, privacy: .public): \(String(describing: fields), privacy: .public)")
         do { try diagnosticsStore?.append(LogRecord(instanceID: generation.uuidString, event: event, fields: fields)) }
         catch { logger.error("Diagnostic write failed: \(describeError(error), privacy: .public)") }
@@ -58,7 +62,6 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                group != RuntimeIdentity.installed().appGroupIdentifier {
                 throw ProjectError.message("VPN 配置的 App Group 不匹配，请重新准备 VPN。")
             }
-            record("vpn_start", ["identity": String(describing: RuntimeIdentity.installed(storageMode: storageMode))])
             let selection = try RuntimeStoreSelection.forProvider(mode: storageMode, shared: { try SharedStore() }, local: {
                 try RuntimeStoreSelection.localStore(directoryName: "ProviderRuntime")
             })
@@ -79,6 +82,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                     try selection.store.saveHistory(incoming)
                 }
             }
+            runtimeLoggingEnabled = try selection.store.configuration().runtimeLoggingEnabled
+            record("vpn_start", ["identity": String(describing: RuntimeIdentity.installed(storageMode: storageMode))])
             // This is the only composition point binding VPN hosting to the listener.
             monitor = try SwitchMonitor(store: selection.store, sampler: ScreenBrightnessSampler(),
                                         notifications: LocalModeNotificationSink(), diagnostic: { [weak self] detail in
@@ -181,11 +186,9 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         // Fast echo is independent of the main actor, storage and JSON encoding.
         // If this returns nil in the app, failure is before/around handleAppMessage, not business readback.
         if messageData.starts(with: MonitorWire.probePrefix) {
-            logger.info("provider_message_probe_received")
             completionHandler?(messageData)
             return
         }
-        logger.info("provider_message_entry bytes=\(messageData.count)")
         DispatchQueue.main.async {
             let response = self.handleControl(messageData, transport: "provider_message")
             if (try? SharedJSON.decoder().decode(MonitorRequest.self, from: messageData).command) != .exportDiagnosticPage {

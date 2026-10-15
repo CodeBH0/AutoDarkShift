@@ -16,6 +16,7 @@ import UIKit
             diagnostics = nil
         }
         let record: @Sendable (String, [String: String]) -> Void = { event, fields in
+            guard diagnostics?.isLoggingEnabled == true else { return }
             logger.info("\(event, privacy: .public): \(String(describing: fields), privacy: .public)")
             do { try diagnostics?.append(LogRecord(instanceID: "app", event: event, fields: fields)) }
             catch { logger.error("App diagnostic write failed: \(describeError(error), privacy: .public)") }
@@ -28,6 +29,7 @@ import UIKit
             })
             storageError = nil
         } catch { storage = nil; storageError = describeError(error) }
+        diagnostics?.setLoggingEnabled((try? storage?.store.configuration().runtimeLoggingEnabled) ?? false)
         let vpn = VPNKeepAliveService(storage: storage, storageError: storageError, record: record)
         let pip = PiPKeepAliveService(record: record)
         let location = LocationKeepAliveService(record: record)
