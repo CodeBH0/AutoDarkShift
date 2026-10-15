@@ -89,6 +89,7 @@ import NetworkExtension
             || configuration.providerConfiguration?["appGroupIdentifier"] as? String != metadata["appGroupIdentifier"] as? String
             || configuration.providerConfiguration?["bridgeToken"] as? String != metadata["bridgeToken"] as? String
             || configuration.providerConfiguration?["bridgePort"] as? Int != metadata["bridgePort"] as? Int
+            || configuration.providerConfiguration?["initialConfiguration"] as? Data != metadata["initialConfiguration"] as? Data
         if !manager.isEnabled || needsMigration {
             record("vpn_profile_repaired", ["wasEnabled": String(manager.isEnabled), "metadataUpdated": String(needsMigration)])
             manager.isEnabled = true
@@ -144,6 +145,38 @@ import NetworkExtension
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
         try await sendChecked(.init(command: .reloadConfiguration, expectedRevision: configuration.revision,
                                     configuration: storageMode == .localIPC ? configuration : nil))
+    }
+    /// Keep system/Settings starts consistent with the exclusive path selection,
+    /// including when the provider's private IPC store still contains an old revision.
+    func persistConfigurationForNextStart(_ configuration: MonitorConfiguration) async throws {
+        let data = try SharedJSON.encoder().encode(configuration.validated())
+        // A failed preferences lookup is unknown, never proof that no provider exists.
+        // Update every matching profile so Settings cannot revive a stale duplicate.
+        let profiles = try await NETunnelProviderManager.loadAllFromPreferences().filter {
+            ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == providerID
+        }
+        for profile in profiles {
+            guard let tunnel = profile.protocolConfiguration as? NETunnelProviderProtocol else { continue }
+            let previous = tunnel.providerConfiguration
+            var metadata = previous ?? [:]
+            guard metadata["initialConfiguration"] as? Data != data else { continue }
+            metadata["initialConfiguration"] = data
+            tunnel.providerConfiguration = metadata
+            profile.protocolConfiguration = tunnel
+            do {
+                try await profile.saveToPreferences()
+                try await profile.loadFromPreferences()
+            } catch {
+                tunnel.providerConfiguration = previous
+                profile.protocolConfiguration = tunnel
+                throw error
+            }
+        }
+        manager = profiles.first { [.connected, .reasserting, .connecting, .disconnecting].contains($0.connection.status) }
+            ?? profiles.first { $0.isEnabled } ?? profiles.first
+        updateState()
+        record("vpn_start_configuration_saved", ["revision": configuration.revision,
+            "isEnabled": String(configuration.isEnabled), "profileCount": String(profiles.count)])
     }
     func diagnostics(stream: MonitorLogStream) async throws -> String {
         if let active = diagnosticExportTasks[stream] { return try await active.task.value }

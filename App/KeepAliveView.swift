@@ -6,10 +6,13 @@ struct KeepAliveView: View {
 
     var body: some View {
         Form {
-            Section("保活方案") {
+            Section {
                 ForEach(controller.keepAliveEntries, id: \.id) { entry in
                     KeepAliveEntryRow(entry: entry, controller: controller)
                 }
+            } header: { Text("保活方案") } footer: {
+                Text("App 内监控在前台执行；进入后台后，需要 PiP 或 Location 提供执行许可。Packet Tunnel 监控需要 VPN 连接。")
+                    .font(.caption)
             }
 
             if let notice = controller.storageNotice {

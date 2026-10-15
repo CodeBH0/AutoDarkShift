@@ -105,14 +105,14 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
         let vpn = BusinessClient(name: "vpn", phase: .stopped, events: events)
         var standardStarts = 0
         var messageFactoryCalls = 0
-        let standardHost = MonitoringHostCoordinator(vpn: vpn,
+        let standardHost = MonitoringHostCoordinator(process: .packetTunnel, vpn: vpn,
             vpnState: { KeepAliveState(phase: .stopped) },
             configurationStore: standardStore, localStore: standardStore,
             makeRuntime: {
                 standardStarts += 1
                 return BusinessRuntime(configuration: try standardStore.configuration())
             }, exportLocal: { _ in "" })
-        let messageHost = MonitoringHostCoordinator(vpn: vpn,
+        let messageHost = MonitoringHostCoordinator(process: .app, vpn: vpn,
             vpnState: { KeepAliveState(phase: .stopped) },
             configurationStore: messageStore, localStore: messageStore,
             makeRuntime: {
@@ -124,10 +124,114 @@ final class ExclusiveMonitoringBusinessTests: XCTestCase {
 
         _ = try await coordinator.select(.standard)
 
-        XCTAssertEqual(standardStarts, 1)
+        XCTAssertEqual(standardStarts, 0)
         XCTAssertEqual(messageFactoryCalls, 0)
         XCTAssertTrue(try standardStore.configuration().isEnabled)
         XCTAssertFalse(try messageStore.configuration().isEnabled)
+    }
+
+    @MainActor func testDisconnectedTunnelCanBeSelectedDisabledAndReplacedByAppPath() async throws {
+        let fixture = ProcessBusinessFixture()
+        fixture.vpn.queryError = MonitorChannelError.emptyReply
+        let selected = try await fixture.coordinator.select(.standard)
+        XCTAssertEqual(selected?.snapshot?.phase, .stopped)
+        XCTAssertTrue(selected?.snapshot?.appliedConfiguration.isEnabled == true)
+        XCTAssertNil(selected?.snapshot?.heartbeatAt)
+        XCTAssertEqual(fixture.appStarts, 0)
+        XCTAssertTrue(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+
+        _ = try await fixture.coordinator.select(nil)
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertEqual(fixture.appStarts, 0)
+
+        _ = try await fixture.coordinator.select(.standard)
+        let appReply = try await fixture.coordinator.select(.message)
+        XCTAssertEqual(appReply?.snapshot?.phase, .running)
+        XCTAssertEqual(fixture.appStarts, 1)
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(fixture.events.values.contains("vpn.query"))
+        XCTAssertEqual(fixture.tunnelAppStarts, 0)
+    }
+
+    @MainActor func testUnknownTunnelReadbackBlocksAppBusinessStartup() async throws {
+        for phase in [KeepAlivePhase.starting, .active, .reasserting, .stopping, .failed] {
+            let fixture = ProcessBusinessFixture()
+            fixture.vpnState.phase = phase
+            fixture.vpn.queryError = MonitorChannelError.emptyReply
+            do {
+                _ = try await fixture.coordinator.select(.message)
+                XCTFail("Unknown tunnel state cannot authorize the App path: \(phase)")
+            } catch { }
+            XCTAssertEqual(fixture.appStarts, 0)
+            XCTAssertEqual(fixture.tunnelAppStarts, 0)
+            XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+            XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        }
+    }
+
+    @MainActor func testPacketTunnelNotificationSettlesBeforeAppPathStarts() async throws {
+        let fixture = ProcessBusinessFixture()
+        fixture.vpnState.phase = .active
+        fixture.vpn.phase = .running
+        fixture.vpn.applied.isEnabled = true
+        fixture.vpn.holdSubmission = true
+        let selecting = Task { try await fixture.coordinator.select(.message) }
+        await waitForPendingSubmission(in: fixture.vpn)
+        XCTAssertEqual(fixture.appStarts, 0)
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        fixture.vpn.resumeSubmission?()
+        _ = try await selecting.value
+        XCTAssertEqual(fixture.appStarts, 1)
+        XCTAssertEqual(fixture.standardStore.savedHistory?.target, .dark)
+        XCTAssertFalse(fixture.vpn.applied.isEnabled)
+        XCTAssertEqual(fixture.tunnelAppStarts, 0)
+        XCTAssertLessThan(try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.settled")),
+                          try XCTUnwrap(fixture.events.values.firstIndex(of: "app.started")))
+    }
+
+    @MainActor func testPersistedConflictResumesOnlyAppPathWithoutStartingTunnelSampler() async throws {
+        let fixture = ProcessBusinessFixture()
+        fixture.standardStore.config.isEnabled = true
+        fixture.messageStore.config.isEnabled = true
+        _ = try await fixture.coordinator.resumeSelected()
+        XCTAssertEqual(fixture.appStarts, 1)
+        XCTAssertEqual(fixture.tunnelAppStarts, 0)
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertTrue(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(fixture.events.values.contains("vpn.query"))
+    }
+
+    @MainActor func testTunnelProfilePersistenceFailureBlocksAppStartup() async throws {
+        let fixture = ProcessBusinessFixture()
+        fixture.vpn.persistError = ProjectError.message("profile save failed")
+        do {
+            _ = try await fixture.coordinator.select(.message)
+            XCTFail("Unpersisted tunnel disable cannot authorize App startup")
+        } catch { }
+        XCTAssertEqual(fixture.appStarts, 0)
+        XCTAssertEqual(fixture.tunnelAppStarts, 0)
+        XCTAssertFalse(try fixture.standardStore.configuration().isEnabled)
+        XCTAssertFalse(try fixture.messageStore.configuration().isEnabled)
+        XCTAssertFalse(fixture.events.values.contains("vpn.query"))
+    }
+
+    @MainActor func testTunnelDisableIsPersistedBeforeDrainAndAppStartup() async throws {
+        let fixture = ProcessBusinessFixture()
+        fixture.vpnState.phase = .active
+        fixture.vpn.phase = .running
+        fixture.vpn.applied.isEnabled = true
+        _ = try await fixture.coordinator.select(.message)
+        let persisted = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.persist.disabled"))
+        let queried = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.query"))
+        let drained = try XCTUnwrap(fixture.events.values.firstIndex(of: "vpn.apply.disabled"))
+        let appStarted = try XCTUnwrap(fixture.events.values.firstIndex(of: "app.started"))
+        XCTAssertLessThan(persisted, queried)
+        XCTAssertLessThan(queried, drained)
+        XCTAssertLessThan(drained, appStarted)
+        XCTAssertFalse(try XCTUnwrap(fixture.vpn.persistedConfigurations.last).isEnabled)
     }
 
     @MainActor private func waitForPendingSubmission(in client: BusinessClient) async {
@@ -188,6 +292,9 @@ private final class BusinessStore: MonitorStore {
     let events: EventList
     var phase: RuntimePhase
     var applied = MonitorConfiguration()
+    var queryError: Error?
+    var persistError: Error?
+    var persistedConfigurations: [MonitorConfiguration] = []
     var rejectDisable = false
     var holdSubmission = false
     var resumeSubmission: (() -> Void)?
@@ -200,8 +307,15 @@ private final class BusinessStore: MonitorStore {
         applied.isEnabled = phase != .stopped
     }
 
+    func persistConfigurationForNextStart(_ configuration: MonitorConfiguration) async throws {
+        events.values.append("\(name).persist.\(configuration.isEnabled ? "enabled" : "disabled")")
+        if let persistError { throw persistError }
+        persistedConfigurations.append(configuration)
+    }
+
     func queryStatus() async throws -> MonitorReply {
         events.values.append("\(name).query")
+        if let queryError { throw queryError }
         return reply(success: true, phase: phase, message: "status")
     }
 
@@ -249,7 +363,9 @@ private final class BusinessStore: MonitorStore {
 
 @MainActor private final class BusinessRuntime: MonitoringRuntime {
     var snapshot: RuntimeSnapshot
-    init(configuration: MonitorConfiguration) {
+    let currentConfiguration: (() -> MonitorConfiguration)?
+    init(configuration: MonitorConfiguration, currentConfiguration: (() -> MonitorConfiguration)? = nil) {
+        self.currentConfiguration = currentConfiguration
         snapshot = RuntimeSnapshot(instanceID: "business-runtime", phase: .starting,
             appliedConfiguration: configuration, counters: RuntimeCounters())
     }
@@ -269,7 +385,9 @@ private final class BusinessStore: MonitorStore {
         snapshot.activePollInterval = snapshot.appliedConfiguration.isEnabled ? 1 : nil
     }
     func reload(expectedRevision: String?) -> MonitorReply {
+        if let currentConfiguration { snapshot.appliedConfiguration = currentConfiguration() }
         snapshot.appliedConfiguration.revision = expectedRevision ?? snapshot.appliedConfiguration.revision
+        snapshot.activePollInterval = snapshot.appliedConfiguration.isEnabled && snapshot.phase == .running ? 1 : nil
         return statusReply()
     }
     func statusReply() -> MonitorReply {
@@ -277,4 +395,31 @@ private final class BusinessStore: MonitorStore {
             appliedRevision: snapshot.appliedConfiguration.revision, snapshot: snapshot)
     }
     func flushDiagnostics() {}
+}
+
+
+@MainActor private final class ProcessBusinessFixture {
+    let events = EventList()
+    lazy var standardStore = BusinessStore(name: "standardStore", events: events)
+    lazy var messageStore = BusinessStore(name: "messageStore", events: events)
+    lazy var vpn = BusinessClient(name: "vpn", phase: .stopped, events: events)
+    var vpnState = KeepAliveState(phase: .stopped)
+    var appStarts = 0
+    var tunnelAppStarts = 0
+    lazy var standard = MonitoringHostCoordinator(process: .packetTunnel, vpn: vpn,
+        vpnState: { self.vpnState }, configurationStore: standardStore, localStore: standardStore,
+        makeRuntime: {
+            self.tunnelAppStarts += 1
+            throw ProjectError.message("Packet Tunnel must never construct an App sampler")
+        }, exportLocal: { _ in "" })
+    lazy var message = MonitoringHostCoordinator(process: .app, vpn: vpn,
+        vpnState: { self.vpnState }, configurationStore: messageStore, localStore: messageStore,
+        makeRuntime: {
+            self.appStarts += 1
+            self.events.values.append("app.started")
+            return BusinessRuntime(configuration: self.messageStore.config,
+                currentConfiguration: { self.messageStore.config })
+        }, exportLocal: { _ in "" })
+    lazy var coordinator = ExclusiveMonitoringBusiness(standard: standard, standardStore: standardStore,
+        message: message, messageStore: messageStore)
 }

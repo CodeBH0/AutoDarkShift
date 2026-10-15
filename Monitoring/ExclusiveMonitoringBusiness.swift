@@ -18,7 +18,7 @@ enum MonitoringBusiness: String, Codable, Equatable {
 
     init(standard: any MonitoringClient, standardStore: any MonitorStore,
          message: any MonitoringClient, messageStore: any MonitorStore,
-         preflightMessage: () throws -> Void = {}) {
+         preflightMessage: @escaping () throws -> Void = {}) {
         self.standard = standard
         self.standardStore = standardStore
         self.message = message
@@ -87,9 +87,11 @@ enum MonitoringBusiness: String, Codable, Equatable {
         try targetStore.saveConfiguration(try enabled.validated())
         do {
             let reply = try await targetClient.applyConfiguration(enabled)
+            let waitingForTunnel = (targetClient as? MonitoringHostCoordinator)?.isWaitingForVPN == true
             guard reply.success, reply.appliedRevision == enabled.revision,
                   let snapshot = reply.snapshot, snapshot.appliedConfiguration == enabled,
-                  snapshot.phase == .running || snapshot.phase == .sleeping else {
+                  snapshot.phase == .running || snapshot.phase == .sleeping ||
+                    (waitingForTunnel && snapshot.phase == .stopped) else {
                 throw ProjectError.message("目标业务未确认应用配置：\(reply.message)")
             }
             return reply

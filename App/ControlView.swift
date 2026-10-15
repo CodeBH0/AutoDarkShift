@@ -12,12 +12,12 @@ struct ControlView: View {
             NavigationStack {
                 DashboardView(controller: controller)
             }
-            .tabItem { Label("仪表", systemImage: "rectangle.grid.2x2") }
+            .tabItem { Label("仪表", systemImage: "speedometer") }
 
             NavigationStack {
                 KeepAliveView(controller: controller)
             }
-            .tabItem { Label("保活", systemImage: "bolt.heartbeat") }
+            .tabItem { Label("保活", systemImage: "bolt.heart") }
 
             NavigationStack {
                 InformationView()

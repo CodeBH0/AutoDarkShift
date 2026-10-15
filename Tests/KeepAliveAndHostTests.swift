@@ -32,12 +32,24 @@ final class KeepAliveAndHostTests: XCTestCase {
     @MainActor func testMethodsRunTogetherAndStopIndependently() async throws {
         let vpn = TestKeepAlive(), pip = TestKeepAlive(), location = TestKeepAlive()
         let manager = KeepAliveManager(services: [(.vpn, vpn), (.pip, pip), (.location, location)])
-        for method in KeepAliveMethod.allCases { try await manager.setEnabled(true, method: method) }
+        for method in [KeepAliveMethod.vpn, .pip, .location] { try await manager.setEnabled(true, method: method) }
         XCTAssertEqual(manager.entries.filter { $0.isEnabled }.count, 3)
         try await manager.setEnabled(false, method: .pip)
         XCTAssertEqual(pip.stops, 1)
         XCTAssertEqual(vpn.stops + location.stops, 0)
         XCTAssertEqual(manager.entries.filter { $0.isEnabled }.map(\.id), [.vpn, .location])
+    }
+
+    @MainActor func testReservedSilentAudioHasNoRegisteredServiceOrToggle() async throws {
+        let manager = KeepAliveManager(services: [(.vpn, TestKeepAlive()), (.pip, TestKeepAlive()),
+                                                 (.location, TestKeepAlive())])
+        XCTAssertNil(manager.state(for: .silentAudio))
+        XCTAssertFalse(manager.entries.contains { $0.id == .silentAudio })
+        do {
+            try await manager.setEnabled(true, method: .silentAudio)
+            XCTFail("A reserved adapter cannot grant background execution")
+        } catch { }
+        XCTAssertFalse(manager.entries.contains { $0.isEnabled })
     }
 
     @MainActor func testOneFailureDoesNotStopAnotherMethod() async throws {
@@ -118,27 +130,28 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertFalse(manager.entries[0].isEnabled)
     }
 
-    @MainActor func testVPNHandoffWaitsForIssuedNotificationThenTransfersLatestHistory() async throws {
+    @MainActor func testAppHandoffWaitsForIssuedNotificationThenPersistsLatestHistory() async throws {
         let fixture = HostFixture()
         try await fixture.coordinator.reconcile()
         XCTAssertEqual(fixture.runtimes.count, 1)
         let runtime = fixture.runtimes[0]
         runtime.holdStop = true
-        let handoff = Task { try await fixture.coordinator.prepareForVPNStart() }
+        let handoff = Task { try await fixture.coordinator.prepareHostHandoff() }
         while runtime.finishStop == nil { await Task.yield() }
-        XCTAssertFalse(fixture.coordinator.canMessage)
+        XCTAssertEqual(runtime.stops, 1)
         XCTAssertEqual(fixture.runtimes.count, 1)
         let latest = SubmissionHistory(target: .dark, submittedAt: Date(timeIntervalSince1970: 300))
         runtime.snapshot.history = latest
         runtime.finishStop?(); runtime.finishStop = nil
-        try await handoff.value
+        _ = try await handoff.value
         XCTAssertEqual(fixture.configuration.savedHistory, latest)
         XCTAssertEqual(fixture.local.savedHistory, latest)
-        XCTAssertTrue(fixture.coordinator.usesVPN)
+        XCTAssertFalse(fixture.coordinator.usesVPN)
+        XCTAssertFalse(fixture.coordinator.canMessage)
     }
 
     @MainActor func testProviderReadbackFailureDoesNotStartDuplicateLocalListener() async throws {
-        let fixture = HostFixture()
+        let fixture = HostFixture(process: .packetTunnel)
         fixture.vpnState.phase = .active
         fixture.vpn.queryError = MonitorChannelError.emptyReply
         try await fixture.coordinator.reconcile()
@@ -147,40 +160,135 @@ final class KeepAliveAndHostTests: XCTestCase {
         XCTAssertTrue(fixture.runtimes.isEmpty)
     }
 
-    @MainActor func testStoppingVPNReturnsToOneLocalHostAndPreservesNewerHistory() async throws {
-        let fixture = HostFixture()
+    @MainActor func testStoppingVPNNeverCreatesAppRuntimeAndPreservesNewerHistory() async throws {
+        let fixture = HostFixture(process: .packetTunnel)
         fixture.vpnState.phase = .active
         let latest = SubmissionHistory(target: .light, submittedAt: Date(timeIntervalSince1970: 200))
         fixture.vpn.reply.snapshot?.history = latest
         fixture.local.savedHistory = SubmissionHistory(target: .dark, submittedAt: Date(timeIntervalSince1970: 100))
         _ = try await fixture.coordinator.queryStatus()
-        fixture.vpnState.phase = .stopping
-        try await fixture.coordinator.reconcile()
-        XCTAssertTrue(fixture.runtimes.isEmpty)
-        fixture.vpnState.phase = .stopped
-        async let first: Void = fixture.coordinator.reconcile()
-        async let second: Void = fixture.coordinator.reconcile()
-        _ = try await (first, second)
-        XCTAssertEqual(fixture.runtimes.count, 1)
+        fixture.vpn.reply.snapshot?.history = SubmissionHistory(target: .dark, submittedAt: Date(timeIntervalSince1970: 50))
+        _ = try await fixture.coordinator.queryStatus()
+        for phase in [KeepAlivePhase.stopping, .stopped] {
+            fixture.vpnState.phase = phase
+            async let first: Void = fixture.coordinator.reconcile()
+            async let second: Void = fixture.coordinator.reconcile()
+            _ = try await (first, second)
+            XCTAssertTrue(fixture.runtimes.isEmpty)
+        }
         XCTAssertEqual(fixture.local.savedHistory, latest)
         XCTAssertEqual(fixture.configuration.savedHistory, latest)
-        XCTAssertFalse(fixture.coordinator.usesVPN)
+        XCTAssertTrue(fixture.coordinator.usesVPN)
     }
 
-    @MainActor func testFailedVPNStartRestoresLocalHostWithSavedFeatureSwitch() async throws {
-        let fixture = HostFixture()
+    @MainActor func testFailedVPNStartNeverCreatesAppRuntime() async throws {
+        let fixture = HostFixture(process: .packetTunnel)
         fixture.configuration.config.isEnabled = false
-        try await fixture.coordinator.reconcile()
         try await fixture.coordinator.prepareForVPNStart()
+        fixture.vpnState.phase = .failed
         try await fixture.coordinator.finishVPNStartRequest()
-        XCTAssertEqual(fixture.runtimes.count, 2)
-        XCTAssertEqual(fixture.runtimes[0].stops, 1)
-        XCTAssertFalse(fixture.runtimes[1].snapshot.appliedConfiguration.isEnabled)
-        XCTAssertTrue(fixture.coordinator.canMessage)
+        XCTAssertTrue(fixture.runtimes.isEmpty)
+        XCTAssertFalse(fixture.coordinator.canMessage)
+        XCTAssertTrue(fixture.coordinator.usesVPN)
+        XCTAssertFalse(fixture.configuration.config.isEnabled)
+    }
+
+    @MainActor func testAppRuntimeIgnoresVPNConnectionTransitions() async throws {
+        let fixture = HostFixture()
+        try await fixture.coordinator.reconcile()
+        let runtime = try XCTUnwrap(fixture.runtimes.first)
+        for phase in [KeepAlivePhase.starting, .active, .reasserting, .stopping, .stopped, .failed] {
+            fixture.vpnState.phase = phase
+            try await fixture.coordinator.reconcile()
+            let reply = try await fixture.coordinator.queryStatus()
+            XCTAssertEqual(reply.snapshot?.instanceID, runtime.snapshot.instanceID)
+            XCTAssertEqual(runtime.snapshot.phase, .running)
+            XCTAssertFalse(fixture.coordinator.usesVPN)
+        }
+        XCTAssertEqual(fixture.runtimes.count, 1)
+        XCTAssertEqual(runtime.stops, 0)
+        XCTAssertEqual(fixture.vpn.queries, 0)
+        XCTAssertEqual(fixture.vpn.applies, 0)
+    }
+
+    @MainActor func testDisconnectedTunnelAcknowledgesConfigurationWithoutProviderEvidence() async throws {
+        for phase in [KeepAlivePhase.unavailable, .stopped] {
+            let fixture = HostFixture(process: .packetTunnel)
+            fixture.vpnState.phase = phase
+            fixture.vpn.queryError = MonitorChannelError.emptyReply
+            var stale = fixture.vpn.reply.snapshot!
+            stale.phase = .running
+            stale.heartbeatAt = Date()
+            stale.activePollInterval = 1
+            fixture.configuration.savedSnapshot = stale
+            var enabled = fixture.configuration.config
+            enabled.revision = "waiting-enabled"
+            enabled.isEnabled = true
+            try fixture.configuration.saveConfiguration(enabled)
+            let applied = try await fixture.coordinator.applyConfiguration(enabled)
+            XCTAssertTrue(fixture.coordinator.isWaitingForVPN)
+            XCTAssertEqual(applied.appliedRevision, enabled.revision)
+            XCTAssertEqual(applied.snapshot?.appliedConfiguration, enabled)
+            XCTAssertEqual(applied.snapshot?.phase, .stopped)
+            XCTAssertNil(applied.snapshot?.heartbeatAt)
+            XCTAssertNil(applied.snapshot?.sample)
+            XCTAssertNil(applied.snapshot?.activePollInterval)
+            var disabled = enabled
+            disabled.revision = "waiting-disabled"
+            disabled.isEnabled = false
+            let drained = try await fixture.coordinator.disableAndDrain(disabled)
+            XCTAssertEqual(drained.snapshot?.appliedConfiguration, disabled)
+            XCTAssertEqual(drained.snapshot?.phase, .stopped)
+            XCTAssertEqual(fixture.vpn.queries, 0)
+            XCTAssertEqual(fixture.vpn.applies, 0)
+            XCTAssertTrue(fixture.runtimes.isEmpty)
+        }
+    }
+
+    @MainActor func testUnknownTunnelReadbackNeverBecomesStoppedAcknowledgement() async throws {
+        for phase in [KeepAlivePhase.starting, .active, .reasserting, .stopping, .failed] {
+            let fixture = HostFixture(process: .packetTunnel)
+            fixture.vpnState.phase = phase
+            fixture.vpn.queryError = MonitorChannelError.emptyReply
+            XCTAssertFalse(fixture.coordinator.isWaitingForVPN)
+            var disabled = fixture.configuration.config
+            disabled.isEnabled = false
+            do {
+                _ = try await fixture.coordinator.disableAndDrain(disabled)
+                XCTFail("Unknown provider state must not confirm drain: \(phase)")
+            } catch { }
+            XCTAssertEqual(fixture.vpn.queries, 1)
+            XCTAssertTrue(fixture.runtimes.isEmpty)
+        }
+    }
+
+    @MainActor func testTunnelDisableWaitsForFinalSubmissionAndPreservesItsHistory() async throws {
+        let fixture = HostFixture(process: .packetTunnel)
+        fixture.vpnState.phase = .active
+        fixture.vpn.reply.snapshot?.phase = .running
+        fixture.vpn.holdApply = true
+        var disabled = fixture.configuration.config
+        disabled.isEnabled = false
+        disabled.revision = "disabled-final"
+        let draining = Task { try await fixture.coordinator.disableAndDrain(disabled) }
+        let deadline = ProcessInfo.processInfo.systemUptime + 2
+        while fixture.vpn.resumeApply == nil && ProcessInfo.processInfo.systemUptime < deadline { await Task.yield() }
+        let completeApply = try XCTUnwrap(fixture.vpn.resumeApply)
+        XCTAssertTrue(fixture.runtimes.isEmpty)
+        XCTAssertNil(fixture.configuration.savedHistory)
+        let latest = SubmissionHistory(target: .dark, submittedAt: Date(timeIntervalSince1970: 500))
+        fixture.vpn.reply.snapshot?.history = latest
+        completeApply()
+        let reply = try await draining.value
+        XCTAssertEqual(reply.snapshot?.history, latest)
+        XCTAssertEqual(fixture.configuration.savedHistory, latest)
+        XCTAssertEqual(fixture.local.savedHistory, latest)
+        XCTAssertEqual(fixture.vpn.applies, 1)
+        XCTAssertTrue(fixture.runtimes.isEmpty)
     }
 
     @MainActor func testLocalLogsRemainExportableWhileVPNOwnsMonitoring() async throws {
-        let fixture = HostFixture()
+        let fixture = HostFixture(process: .packetTunnel)
         fixture.vpnState.phase = .active
         XCTAssertEqual(try fixture.coordinator.localDiagnostics(stream: .boost), "app-boost\n")
         let remote = try await fixture.coordinator.diagnostics(stream: .boost)
@@ -212,7 +320,7 @@ final class KeepAliveAndHostTests: XCTestCase {
         let vpn = HostVPN()
         let sampler = HostBrightnessSampler()
         var monitor: SwitchMonitor?
-        let coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState(phase: .stopped) },
+        let coordinator = MonitoringHostCoordinator(process: .app, vpn: vpn, vpnState: { KeepAliveState(phase: .stopped) },
             configurationStore: configuration, localStore: local, makeRuntime: {
                 let current = try SwitchMonitor(store: local, sampler: sampler,
                     notifications: HostNoopNotifications())
@@ -299,7 +407,7 @@ final class KeepAliveAndHostTests: XCTestCase {
     }
 
     @MainActor func testLocalExecutionPauseDoesNotAffectVPNOwnedRuntime() async throws {
-        let fixture = HostFixture()
+        let fixture = HostFixture(process: .packetTunnel)
         fixture.vpnState.phase = .active
         fixture.coordinator.setAppExecutionAllowed(false)
         try await fixture.coordinator.reconcile()
@@ -435,10 +543,27 @@ private final class HostStore: MonitorStore {
 
 @MainActor private final class HostVPN: MonitoringClient {
     var queryError: Error?
+    var queries = 0
+    var applies = 0
+    var holdApply = false
+    var resumeApply: (() -> Void)?
     var reply = MonitorReply(success: true, message: "vpn", snapshot:
         RuntimeSnapshot(instanceID: "test-vpn", appliedConfiguration: MonitorConfiguration(), counters: RuntimeCounters()))
-    func queryStatus() async throws -> MonitorReply { if let queryError { throw queryError }; return reply }
-    func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply { reply }
+    func queryStatus() async throws -> MonitorReply {
+        queries += 1
+        if let queryError { throw queryError }
+        return reply
+    }
+    func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
+        applies += 1
+        if holdApply {
+            await withCheckedContinuation { continuation in resumeApply = { continuation.resume() } }
+        }
+        reply.snapshot?.appliedConfiguration = configuration
+        reply.snapshot?.activePollInterval = configuration.isEnabled ? 1 : nil
+        reply.appliedRevision = configuration.revision
+        return reply
+    }
     func diagnostics(stream: MonitorLogStream) async throws -> String { "vpn-\(stream.rawValue)\n" }
 }
 
@@ -449,7 +574,9 @@ private final class HostStore: MonitorStore {
     var vpnState = KeepAliveState(phase: .stopped)
     var runtimes: [HostRuntime] = []
     var constructionError: Error?
-    lazy var coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { self.vpnState },
+    let process: MonitoringHostCoordinator.Process
+    init(process: MonitoringHostCoordinator.Process = .app) { self.process = process }
+    lazy var coordinator = MonitoringHostCoordinator(process: process, vpn: vpn, vpnState: { self.vpnState },
         configurationStore: configuration, localStore: local, makeRuntime: {
             if let error = self.constructionError { throw error }
             let runtime = HostRuntime(configuration: self.local.config, currentConfiguration: { self.local.config })

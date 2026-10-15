@@ -13,7 +13,7 @@ struct MonitoringMenuView: View {
                 if let notice = controller.runtimeNotice {
                     Text(notice).font(.caption).foregroundStyle(.secondary)
                 }
-                LabeledContent("当前业务", value: controller.activeBusinessText)
+                LabeledContent("当前监听", value: controller.activeBusinessText)
                 if let snapshot = controller.displayedSnapshot {
                     LabeledContent("最近监听阶段", value: snapshot.phase.rawValue)
                     dateRow("状态更新时间", snapshot.updatedAt)
@@ -25,7 +25,7 @@ struct MonitoringMenuView: View {
                         LabeledContent("实际轮询间隔", value: snapshot.lastPollInterval.map { "\(formatted($0)) 秒" } ?? "无")
                         LabeledContent("目标轮询频率", value: snapshot.activePollInterval.map { "\(Int((1 / $0).rounded())) Hz" } ?? "未采样")
                     } else {
-                        Text("仅接收亮度消息，不启动轮询。没有新消息时不更新采样心跳。")
+                        Text("App 内监控仅接收 iOS 26 亮度消息，不启动轮询；没有新消息时不更新采样心跳。")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if let trend = snapshot.trend {

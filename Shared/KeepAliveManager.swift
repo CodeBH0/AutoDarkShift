@@ -2,6 +2,8 @@ import Foundation
 
 enum KeepAliveMethod: String, CaseIterable, Identifiable {
     case vpn, pip, location
+    /// Reserved adapter slot. It has no service, permission or GUI until implemented.
+    case silentAudio
     var id: String { rawValue }
 }
 

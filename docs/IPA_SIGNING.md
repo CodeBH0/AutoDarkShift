@@ -1,6 +1,21 @@
 # iPhone 重签 IPA
 
-当前源码为 **1.0.3 / build 1**，按用户要求暂停本机编译，尚无该版本 IPA。新 `BrightnessDidChangeMessage` 业务要求 iOS 26 SDK；迁移至 Xcode 26 后首次打包使用 `bash tools/package_ipa.sh --direct-sdk --current-build`，说明见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。之后默认递增 build，构建目录按 `build/<版本>/build<编号>/` 隔离，旧产物不覆盖。以下为已打包的 build 18 历史记录。
+当前源码为 **1.1.0 / build 1**，本轮交付完全未签名 IPA。主 App 与 `PlugIns/PacketTunnel.appex` 都需要你在手机侧使用证书和匹配描述文件重签；本机没有使用开发者证书或本地 ad-hoc 签名。
+
+首次打包命令为 `bash tools/package_ipa.sh --direct-sdk --current-build --unsigned`。`--current-build` 仅允许该版本 / build 首次使用；之后使用 `bash tools/package_ipa.sh --direct-sdk --unsigned` 自动递增。默认不加 `--unsigned` 时仍保留旧占位签名流程。
+
+本轮产物与核对结果见下方当前包记录。`--unsigned` 不把权限嵌入签名；需要重签工具为两个组件配置 Network Extension 权限。参考权限文件分别位于 `build/1.1.0/build1/Signing/AutoDarkShift.entitlements` 和 `PacketTunnel.entitlements`。App Group 可选及标识符同步要求仍见下方签名说明。
+
+最低系统仍为 iOS 17；App 内消息监控需 iOS 26+，Packet Tunnel 路径保留原事件与动态轮询。两路严格互斥，首次测试建议从 [1.1.0 验收表](DEVICE_ACCEPTANCE.md) 开始。构建和包结构核对不代表真机通过。
+
+## 1.1.0 / build 1 当前未签名包
+
+- 文件：`build/AutoDarkShift-1.1.0-build1-unsigned.ipa`，953803 字节。
+- SHA-256：`515a39d213451b06e21c551dd9b181ee2c5586ea452ba802204f706bbc977901`，另有 `.ipa.sha256` 文件。
+- 主 App 和 PacketTunnel 均为 arm64、1.1.0 / build 1、最低 iOS 17，SDK 26.2；两者均无 LC_CODE_SIGNATURE，ZIP 无签名目录或描述文件。
+- 61 项核心回归与 79 个 XCTest 全部通过；真机验收尚未执行。
+
+包核对报告在 `build/1.1.0/build1/ipa-verification.json`，本机构建和验证范围见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)。以下 1.0.2 build 18 的占位签名、尺寸与校验值仅为历史记录；1.1.0 以本节完全未签名包为准。
 
 ## 1.0.2 / build 18 历史包
 

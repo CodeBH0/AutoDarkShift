@@ -7,11 +7,13 @@ cd "$PROJECT_ROOT"
 
 BUILD_MODE=archive
 USE_CURRENT_BUILD=0
+SIGNING_MODE=resign
 for OPTION in "$@"; do
     case "$OPTION" in
         --direct-sdk) BUILD_MODE=direct-sdk ;;
         --current-build) USE_CURRENT_BUILD=1 ;;
-        *) echo "Usage: bash tools/package_ipa.sh [--direct-sdk] [--current-build]" >&2; exit 1 ;;
+        --unsigned) SIGNING_MODE=unsigned ;;
+        *) echo "Usage: bash tools/package_ipa.sh [--direct-sdk] [--current-build] [--unsigned]" >&2; exit 1 ;;
     esac
 done
 
@@ -60,8 +62,8 @@ versions = re.findall(r"^MARKETING_VERSION\s*=\s*([0-9]+\.[0-9]+\.[0-9]+)[ \t]*$
 if len(versions) != 1:
     raise SystemExit("Expected one numeric MARKETING_VERSION in Config/Project.xcconfig.")
 version = versions[0]
-for artifact in (root / "build").glob(f"AutoDarkShift-{version}-build*-resign.ipa"):
-    match = re.search(r"-build([0-9]+)-resign\.ipa$", artifact.name)
+for artifact in (root / "build").glob(f"AutoDarkShift-{version}-build*-*.ipa*"):
+    match = re.search(r"-build([0-9]+)-(?:resign|unsigned)\.ipa(?:\.sha256)?$", artifact.name)
     if match:
         used.append(int(match.group(1)))
 for directory in (root / "build" / version).glob("build[0-9]*"):
@@ -87,14 +89,15 @@ if [[ -z "$APP_VERSION" ]]; then
 fi
 BUILD_ROOT="$PROJECT_ROOT/build/$APP_VERSION/build$APP_BUILD"
 ARCHIVE_PATH="$BUILD_ROOT/AutoDarkShift.xcarchive"
-IPA_PATH="$PROJECT_ROOT/build/AutoDarkShift-$APP_VERSION-build$APP_BUILD-resign.ipa"
-if [[ -e "$BUILD_ROOT" || -e "$IPA_PATH" || -e "$IPA_PATH.sha256" ]]; then
+IPA_BASE="$PROJECT_ROOT/build/AutoDarkShift-$APP_VERSION-build$APP_BUILD"
+IPA_PATH="$IPA_BASE-$SIGNING_MODE.ipa"
+if [[ -e "$BUILD_ROOT" || -e "$IPA_BASE-resign.ipa" || -e "$IPA_BASE-resign.ipa.sha256" || -e "$IPA_BASE-unsigned.ipa" || -e "$IPA_BASE-unsigned.ipa.sha256" ]]; then
     echo "Build $APP_BUILD output already exists; refusing to overwrite it." >&2
     exit 1
 fi
 mkdir -p "$(dirname "$BUILD_ROOT")"
 mkdir "$BUILD_ROOT"
-echo "Building $APP_VERSION / build $APP_BUILD ($BUILD_MODE); log: $BUILD_ROOT/unsigned-build.log"
+echo "Building $APP_VERSION / build $APP_BUILD ($BUILD_MODE, $SIGNING_MODE); log: $BUILD_ROOT/unsigned-build.log"
 if [[ "$BUILD_MODE" == direct-sdk ]]; then
     # Explicit SDK/target builds avoid destination discovery and never install a platform.
     # This mode produces the same Release app/extension, but no .xcarchive.
@@ -139,8 +142,7 @@ if [[ "$APP_GROUP_ID" != "$EXTENSION_APP_GROUP_ID" ]]; then
     exit 1
 fi
 
-# Preserve the app's requested capabilities in a local ad-hoc signature so
-# re-signing tools can read them. This signature cannot authorize installation.
+# Export both bundles' requested capabilities for later certificate re-signing.
 for ENTITLEMENT_FILE in AutoDarkShift PacketTunnel; do
     /usr/bin/plutil -create xml1 "$BUILD_ROOT/Signing/$ENTITLEMENT_FILE.entitlements"
     /usr/libexec/PlistBuddy \
@@ -150,11 +152,15 @@ for ENTITLEMENT_FILE in AutoDarkShift PacketTunnel; do
         -c "Add :com.apple.security.application-groups:0 string $APP_GROUP_ID" \
         "$BUILD_ROOT/Signing/$ENTITLEMENT_FILE.entitlements"
 done
-/usr/bin/codesign --force --sign - --timestamp=none \
-    --entitlements "$BUILD_ROOT/Signing/PacketTunnel.entitlements" "$EXTENSION_PATH"
-/usr/bin/codesign --force --sign - --timestamp=none \
-    --entitlements "$BUILD_ROOT/Signing/AutoDarkShift.entitlements" "$APP_PATH"
-/usr/bin/codesign --verify --deep --strict "$APP_PATH"
+if [[ "$SIGNING_MODE" == resign ]]; then
+    # Preserve the default local ad-hoc signatures for tools that read capabilities
+    # from signatures. These signatures cannot authorize installation.
+    /usr/bin/codesign --force --sign - --timestamp=none \
+        --entitlements "$BUILD_ROOT/Signing/PacketTunnel.entitlements" "$EXTENSION_PATH"
+    /usr/bin/codesign --force --sign - --timestamp=none \
+        --entitlements "$BUILD_ROOT/Signing/AutoDarkShift.entitlements" "$APP_PATH"
+    /usr/bin/codesign --verify --deep --strict "$APP_PATH"
+fi
 
 for BUNDLE_PATH in "$APP_PATH" "$EXTENSION_PATH"; do
     ACTUAL_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$BUNDLE_PATH/Info.plist")"
@@ -168,4 +174,4 @@ done
     "$PACKAGE_STAGE/Payload" "$IPA_PATH"
 /usr/bin/unzip -tq "$IPA_PATH"
 /usr/bin/shasum -a 256 "$IPA_PATH" >"$IPA_PATH.sha256"
-echo "Ready for certificate re-signing: $IPA_PATH"
+echo "Ready for certificate re-signing ($SIGNING_MODE): $IPA_PATH"

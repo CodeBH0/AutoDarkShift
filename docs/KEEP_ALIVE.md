@@ -1,6 +1,6 @@
-# 多方案保活（VPN / PiP / Location）
+# 多方案保活（1.1.0：VPN / PiP / Location）
 
-三种方案在“保活”Tab 可独立同时开启；VPN / Location 使用开关，PiP 使用“开启悬浮窗 / 关闭悬浮窗”和“一键0.1pt”按钮。某种方案失败或关闭不停止其他方案。独立静音音频方案已取消。仪表中的 Auto Dark Shift 控制监听业务，关闭它不关闭保活；通知冷却、测试通知、统计与两路导出仍在原有二级功能页面。
+三种方案在“保活”Tab 可独立同时开启；VPN / Location 使用开关，PiP 使用“开启悬浮窗 / 关闭悬浮窗”和“一键0.1pt”按钮。某种方案失败或关闭不停止其他方案。`silentAudio` 仅保留枚举扩展位，没有注册服务、GUI 或实际音频播放。仪表中的 Auto Dark Shift 控制监听业务，关闭它不关闭保活；通知冷却、测试通知、统计与两路导出仍在原有二级功能页面。
 
 ## 平台适配
 
@@ -34,13 +34,17 @@ Location 从原先三公里精度 / 最大距离过滤改为 `kCLLocationAccurac
 
 `KeepAliveService`、`KeepAliveManager` 和每种方案的 `KeepAliveSwitchControl` 只依赖 Foundation，不引用 AutoDarkShift 模型、监听或存储。注册新方案时实现平台适配器并在 AppComposition 注册。状态回调由平台驱动，每种方案保存自己的待开启状态、错误及停止意图。
 
-AppController 复用既有配置、权限、统计、状态读取和日志服务；MonitoringHostCoordinator 负责业务宿主交接。VPN 正在连接、运行、重连或断开时选择扩展，其余时间选择 App 内监听。PiP 与 Location 同时运行共用一个 App 内监听实例。App 前台允许本地监听；后台仅在 PiP 或 Location 的平台状态实际为 active / reasserting 时允许。启动中、失败、停止中均不给 PiP 后台监听资格；最后一个 App 保活关闭后 sleep 取消采样并清除心跳，回前台或确认保活恢复后 wake。VPN 扩展不受此本地执行策略影响。
+AppController 复用配置、权限、状态读取及日志服务；`ExclusiveMonitoringBusiness` 管理两条互斥监听路径。`MonitoringHostCoordinator` 必须显式指定 `.packetTunnel` 或 `.app`，固定进程，不根据 VPN 状态改变宿主。Packet Tunnel 路径仅由扩展内原采样器运行；未连接时保存选择等待，禁止 App fallback。App 路径只用 iOS 26 类型化亮度消息，不启动事件加轮询的旧本地实现。
 
-由 App 发起连接时，先等待本地监听停止及已提交通知结算，再启动 VPN。由 App 发起断开时，先让扩展停止采样、确认 stopped 并取回最新成功历史，再断开连接。历史按完成时间合并，不用旧数据回退。外部断开、强杀或控制通道无回复时，只保留实际取得的历史，不推断未知通知结果。详见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+PiP 与 Location 只为 App 路径提供后台执行许可，与 VPN 状态无关。二者同开只使用一个消息监听实例；前台允许执行，后台仅在至少一个平台状态实际为 active / reasserting 时允许。启动中、失败、停止中不给后台资格；最后一个 App 保活关闭后 sleep 取消消息观察并清空心跳，回前台或确认恢复后 wake。VPN 连接不能替代此许可，App 许可也不影响扩展执行。
 
-App 内监听使用私有 LocalMonitoring 目录，与 ProviderRuntime / App Group 的日志独立。运行、Boost 分别导出，导出汇集对应的 App 内记录与已有 Provider 记录，保留 scope 与实例 ID；新宿主不会覆盖旧 Provider 缓存。
+切路径先保存两路禁用配置，确认停止采样并等待已提交系统通知的最终结果，再启用目标；未知或超时不能视为已停止。保活服务开关独立：选 App 时 VPN 可继续连接但扩展采样禁用；选 Packet Tunnel 时 PiP / Location 可继续运行但不创建 App 消息监听。每次选择将最新配置写入 VPN profile 的 `initialConfiguration`，local-ipc 系统重启 Provider 时优先应用它，避免恢复旧启用状态。
 
-## 后台监听诊断（build 17）
+App 消息业务存储于私有 `MessageMonitoring`，旧 `LocalMonitoring` 仅用于历史双日志导出，不再采样。运行与 Boost 记录分别导出，保留实际来源、原始时间与旧 Provider 缓存。完整边界和关系图见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+
+## 历史后台监听诊断（1.0.x build 17）
+
+以下是旧 App 事件加轮询路径的诊断背景，不描述 1.1.0 消息路径的生产调度。
 
 PiP 主体、来源宿主、44pt 开启与 0.1pt 缩小流程沿用 build 16。本轮修复 App 执行许可与 runtime phase 的协调，并把 App 内轮询等待改为 DispatchSourceTimer；UIKit 亮度读取仍在 MainActor，VPN 调度不变。`.inactive` 不再直接触发监听睡眠，实际后台且没有确认保活时仍 sleep。
 
@@ -54,4 +58,4 @@ PiP 主体、来源宿主、44pt 开启与 0.1pt 缩小流程沿用 build 16。�
 - 初版低精度后台定位策略参考 [truongkma/t-location](https://github.com/truongkma/t-location)。该仓库使用 AGPL-3.0；本工程未复制其源码，使用系统 CoreLocation 接口独立实现权限与生命周期。
 - 平台接口依据 Apple 的 [视频通话 PiP](https://developer.apple.com/documentation/avkit/adopting-picture-in-picture-for-video-calls)、[PiP 内容源](https://developer.apple.com/documentation/avkit/avpictureinpicturecontroller/contentsource-swift.class)、[后台定位许可](https://developer.apple.com/documentation/corelocation/cllocationmanager/allowsbackgroundlocationupdates)及[音频会话中断](https://developer.apple.com/documentation/avfaudio/avaudiosession/interruptionnotification)。
 
-本机验证涵盖接口编译、独立开关与宿主交接回归；系统授权、PiP 可启动性、后台与锁屏调度由 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 的专项实机检查确认。
+历史版本曾进行接口编译、独立开关与宿主交接回归；当前 1.1.0 实际本机结果见 [STATIC_VALIDATION.md](STATIC_VALIDATION.md)，不由历史结果推定。系统授权、PiP 可启动性、后台与锁屏调度由 [DEVICE_ACCEPTANCE.md](DEVICE_ACCEPTANCE.md) 的专项实机检查确认。

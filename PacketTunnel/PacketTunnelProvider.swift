@@ -64,10 +64,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             })
             runtimeStore = selection.store
             if storageMode == .localIPC {
-                // Direct app starts carry current configuration. System restarts retain provider history/config.
-                let cached = try selection.store.configuration()
+                // App and system starts both honor the last persisted path selection.
+                // Provider-private history remains authoritative for completed submissions.
                 let initialData = options?["initialConfiguration"] as? Data
-                    ?? (cached.revision == "defaults-v1" ? configuration["initialConfiguration"] as? Data : nil)
+                    ?? configuration["initialConfiguration"] as? Data
                 if let initialData {
                     try selection.store.saveConfiguration(SharedJSON.decoder().decode(MonitorConfiguration.self, from: initialData))
                 }

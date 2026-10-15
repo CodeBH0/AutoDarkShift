@@ -57,19 +57,13 @@ import UIKit
         do {
             guard let storage else { throw ProjectError.message(storageError ?? "配置存储不可用。") }
             let local = try RuntimeStoreSelection.localStore(directoryName: "LocalMonitoring")
-            monitoring = MonitoringHostCoordinator(vpn: vpn, vpnState: { vpn.state },
+            monitoring = MonitoringHostCoordinator(process: .packetTunnel, vpn: vpn, vpnState: { vpn.state },
                 configurationStore: storage.store, localStore: local, makeRuntime: {
-                    let scheduler = DispatchPollingScheduler(record: record, context: context)
-                    return try SwitchMonitor(store: local,
-                                      sampler: ScreenBrightnessSampler(scheduler: scheduler, record: record, context: context),
-                                      notifications: LocalModeNotificationSink(), diagnostic: { detail in
-                        record("local_monitor_storage_error", ["error": detail])
-                    }, diagnosticContext: context)
+                    throw ProjectError.message("Packet Tunnel 路径只能在扩展进程采样。")
                 }, exportLocal: { stream in
                     String(decoding: try local.exportData(metadata: ["scope": "app_monitor", "host": "app"],
                         stream: stream, includeProviderCache: false), as: UTF8.self)
                 }, record: record, context: context)
-            diagnosticHost = monitoring
         } catch {
             monitoring = nil
             record("local_monitor_setup_failed", ["error": describeError(error)])
@@ -94,10 +88,10 @@ import UIKit
                     "heartbeatAt": snapshot?.heartbeatAt?.ISO8601Format() ?? "none", "lastPollAt": "none"
                 ]) { _, new in new }
             }
-            let coordinator = MonitoringHostCoordinator(vpn: vpn, vpnState: { KeepAliveState() },
+            let coordinator = MonitoringHostCoordinator(process: .app, vpn: vpn, vpnState: { vpn.state },
                 configurationStore: local, localStore: local, makeRuntime: {
                     guard #available(iOS 26.0, *) else {
-                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
+                        throw ProjectError.message("App 内监控需要 iOS 26 或更新版本。")
                     }
                     return try SwitchMonitor(store: local,
                         sampler: ScreenBrightnessMessageSampler(screen: UIScreen.main, record: record, context: messageContext),
@@ -110,12 +104,13 @@ import UIKit
                         includeProviderCache: false), as: UTF8.self)
                 }, record: record, context: messageContext)
             messageHost = coordinator
+            diagnosticHost = coordinator
             messageMonitoring = coordinator
             messageStore = local
             businesses = ExclusiveMonitoringBusiness(standard: client, standardStore: storage.store,
                 message: coordinator, messageStore: local, preflightMessage: {
                     guard #available(iOS 26.0, *) else {
-                        throw ProjectError.message("亮度消息业务需要 iOS 26 或更新版本。")
+                        throw ProjectError.message("App 内监控需要 iOS 26 或更新版本。")
                     }
                 })
             messageSetupError = nil

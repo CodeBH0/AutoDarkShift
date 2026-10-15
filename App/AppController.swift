@@ -88,7 +88,7 @@ final class AppController: ObservableObject {
             if let messageStore { messageConfiguration = try messageStore.configuration() }
             messageBusinessEnabled = messageConfiguration.isEnabled
         } catch { self.storageError = describeError(error) }
-        if let messageSetupError { self.appError = "亮度消息业务未就绪：\(messageSetupError)" }
+        if let messageSetupError { self.appError = "App 内监控未就绪：\(messageSetupError)" }
         record("app_launch", ["storageMode": self.storageMode.rawValue,
                               "identity": String(describing: RuntimeIdentity.installed(storageMode: self.storageMode)),
                               "storageError": self.storageError ?? "none", "storageFallbackReason": fallbackReason ?? "none"])
@@ -155,7 +155,7 @@ final class AppController: ObservableObject {
             expected.cooldown == configuration.cooldown
     }
     var activeBusinessText: String {
-        messageBusinessEnabled ? "亮度消息" : autoDarkShiftEnabled ? "原监听" : "均已关闭"
+        messageBusinessEnabled ? "App 内监控" : autoDarkShiftEnabled ? "Packet Tunnel 监控" : "均已关闭"
     }
     var canReadMonitoring: Bool { hostCoordinator?.canMessage ?? keepAliveState.phase.canMessage }
     private var usesVPNMonitoring: Bool { hostCoordinator?.usesVPN ?? true }
@@ -233,12 +233,15 @@ final class AppController: ObservableObject {
     }
     var samplingText: String {
         if messageBusinessEnabled {
-            guard let current = messageCoordinator?.localRuntimeSnapshot else { return "正在准备亮度消息监听" }
-            if current.phase == .sleeping { return "亮度消息监听睡眠中" }
+            guard let current = messageCoordinator?.localRuntimeSnapshot else { return "正在准备 App 内监控" }
+            if current.phase == .sleeping { return "App 内监控等待执行许可" }
             if current.phase == .running, current.appliedConfiguration.isEnabled {
-                return "亮度消息监听已注册，等待系统消息"
+                return "App 内亮度观察者已注册，等待系统消息"
             }
-            return "亮度消息监听阶段：\(current.phase.rawValue)"
+            return "App 内监控阶段：\(current.phase.rawValue)"
+        }
+        if hostCoordinator?.isWaitingForVPN == true {
+            return autoDarkShiftEnabled ? "等待 VPN 连接" : "两条监控路径已关闭"
         }
         if !autoDarkShiftEnabled {
             if runtimeConfirmed, snapshot?.appliedConfiguration.isEnabled == false { return "Auto Dark Shift 已关闭" }
@@ -313,7 +316,7 @@ final class AppController: ObservableObject {
     /// Only a confirmed active PiP or Location service permits the App-hosted
     /// listener to continue after the scene enters the background.
     private func updateLocalExecutionPolicy() {
-        let isBackgroundKeepAliveActive = [KeepAliveMethod.pip, .location].contains { method in
+        let isBackgroundKeepAliveActive = [KeepAliveMethod.pip, .location, .silentAudio].contains { method in
             guard let phase = keepAliveManager.state(for: method)?.phase else { return false }
             return phase == .active || phase == .reasserting
         }
@@ -323,12 +326,12 @@ final class AppController: ObservableObject {
         let policy = "\(sceneState):\(allowed):\(pipPhase):\(locationPhase):\(hostCoordinator?.hostName ?? "vpn")"
         if policy != lastExecutionPolicy {
             lastExecutionPolicy = policy
-            let runtime = hostCoordinator?.localRuntimeSnapshot
+            let runtime = messageCoordinator?.localRuntimeSnapshot
             record("app_execution_allowed", [
                 "source": "app_controller", "sceneState": sceneState,
                 "appForeground": String(appIsForeground), "pipPhase": pipPhase,
                 "locationPhase": locationPhase, "allowed": String(allowed),
-                "listenerHost": hostCoordinator?.usesVPN == false ? "app" : "vpn",
+                "listenerHost": messageBusinessEnabled ? "app" : "vpn",
                 "runtimePhase": runtime?.phase.rawValue ?? "none",
                 "pollInterval": runtime?.activePollInterval.map { String($0) } ?? "none",
                 "heartbeatAt": runtime?.heartbeatAt?.ISO8601Format() ?? "none",
@@ -445,7 +448,7 @@ final class AppController: ObservableObject {
         guard !businessControlsDisabled else { return }
         run {
             guard let businesses = self.businesses else {
-                throw ProjectError.message("亮度消息业务未就绪，请查看错误信息。")
+                throw ProjectError.message("App 内监控未就绪，请查看错误信息。")
             }
             self.businessSwitching = true
             defer {
@@ -470,8 +473,10 @@ final class AppController: ObservableObject {
                 throw ProjectError.message("业务切换未完成，请核对停用和启动的确认结果后重试。\(describeError(error))")
             }
             if selection == .standard, let reply { self.acceptReply(reply) }
-            self.message = selection == .message ? "亮度消息业务已开启，原监听已停止。" :
-                selection == .standard ? "原监听已开启，亮度消息业务已停止。" : "两条业务已关闭，保活方案继续运行。"
+            self.message = selection == .message ? "App 内监控已开启，Packet Tunnel 采样已停用。" :
+                selection == .standard ? (self.hostCoordinator?.isWaitingForVPN == true ?
+                    "已选择 Packet Tunnel 监控，等待 VPN 连接。" : "Packet Tunnel 监控已开启，App 内采样已停用。") :
+                    "两条监控路径已关闭，保活方案继续运行。"
             self.record("monitor_business_selected", ["business": selection?.rawValue ?? "none"])
         }
     }
@@ -567,6 +572,7 @@ final class AppController: ObservableObject {
             guard let store = self.store else { throw ProjectError.message("运行存储不可用。") }
             try store.saveConfiguration(saved)
             self.configuration = saved
+            try await self.monitoring.persistConfigurationForNextStart(saved)
             if let messageStore = self.messageStore {
                 var messageConfiguration = try messageStore.configuration()
                 messageConfiguration.cooldown = saved.cooldown
@@ -576,7 +582,7 @@ final class AppController: ObservableObject {
                 if messageConfiguration.isEnabled, let coordinator = self.messageCoordinator {
                     let reply = try await coordinator.applyConfiguration(messageConfiguration)
                     guard reply.success, reply.appliedRevision == messageConfiguration.revision else {
-                        throw ProjectError.message("亮度消息业务未确认应用配置：\(reply.message)")
+                        throw ProjectError.message("App 内监控未确认应用配置：\(reply.message)")
                     }
                     self.messageSnapshot = reply.snapshot
                 }

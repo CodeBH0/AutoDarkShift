@@ -6,7 +6,7 @@ DEVELOPMENT_TEAM =
 CODE_SIGN_STYLE = Automatic
 IPHONEOS_DEPLOYMENT_TARGET = 17.0
 SWIFT_VERSION = 5.0
-MARKETING_VERSION = 1.0.3
+MARKETING_VERSION = 1.1.0
 CURRENT_PROJECT_VERSION = 1
 
 // Optional untracked overrides for your team and registered identifiers.

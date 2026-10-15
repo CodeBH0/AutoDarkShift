@@ -4,11 +4,13 @@ import Foundation
 @MainActor protocol MonitoringClient: AnyObject {
     func queryStatus() async throws -> MonitorReply
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply
+    func persistConfigurationForNextStart(_ configuration: MonitorConfiguration) async throws
     func prepareHostHandoff() async throws -> MonitorReply
     func diagnostics(stream: MonitorLogStream) async throws -> String
 }
 
 extension MonitoringClient {
+    func persistConfigurationForNextStart(_ configuration: MonitorConfiguration) async throws {}
     func diagnostics() async throws -> String { try await diagnostics(stream: .runtime) }
     func prepareHostHandoff() async throws -> MonitorReply { try await queryStatus() }
 }

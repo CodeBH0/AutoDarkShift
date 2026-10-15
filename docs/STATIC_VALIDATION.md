@@ -1,4 +1,24 @@
-# 验证记录（当前源码 1.0.3 / build 1）
+# 验证记录（当前源码 1.1.0 / build 1）
+
+## 2026-10-14 固定进程互斥路径（1.1.0 / build 1）
+
+Packet Tunnel 路径固定扩展进程，App 路径固定类型化消息输入；移除按 VPN 状态自动创建 App 轮询实例的生产组合。两路共用 SwitchMonitor、MathModel v2 和 Boost，先停止旧采样并等待已提交通知结算，再启用目标。无 VPN 时 Packet Tunnel 仅保存选择等待连接。PiP / Location 只许可 App 后台执行；静音音频仅预留、未注册或展示。
+
+审核修复了未编译源码中 `preflightMessage` 缺少 `@escaping` 的错误。路径切换还会先成功读取并同步同一扩展的所有 VPN profile 启动配置，读取 / 保存失败阻止切换；local-ipc 的系统启动不再恢复私有目录中的旧启用状态。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| 工程 / 空白 / 脚本 | 通过：208 个对象、58 个文件、79 个唯一 XCTest 方法；`validate_project.py`、`git diff --check`、`bash -n` 通过 |
+| core checks | 61 项生产回归通过，含真实 localhost TCP 双流传输 |
+| Swift Package XCTest | 79 个方法，0 失败；含固定进程、无 VPN 选择、未知状态拒绝、在途通知结算、持久化先于切换及失败阻止启动、App 许可独立与预留方案隐藏 |
+| iPhoneOS 构建 | Xcode 26.3（17C529）、SDK 26.2、Swift 5 模式；App / PacketTunnel arm64 Release 编译成功，最低 iOS 17；App 消息路径仅 iOS 26+ |
+| IPA | `AutoDarkShift-1.1.0-build1-unsigned.ipa`，两个组件同为 1.1.0 / build 1，ZIP 完整、标识符 / 分组匹配、扩展框架边界通过 |
+| 无签名核对 | 两个 Mach-O 均无 LC_CODE_SIGNATURE，包内无 _CodeSignature 或 provisioning profile；未调用 codesign，权限参考另存 Signing/ |
+| 真机 | 未执行安装、后台 / 锁屏、亮度新鲜度、通知展示或外部快捷指令验收；见 DEVICE_ACCEPTANCE 当前专项 |
+
+核心 / XCTest 使用允许 localhost 监听的环境；受限沙箱下拒绝监听的初次结果不计作通过。SwiftPM 正式验证使用全新项目内缓存；Xcode 正式构建允许其正常缓存访问。编译有既有 NetworkExtension 回调的 Sendable 警告，本轮未切换 Swift 6 严格并发模式。没有安装或下载平台、模拟器或虚拟机。
+
+打包使用 `bash tools/package_ipa.sh --direct-sdk --current-build --unsigned`，1.1.0 的首次编号为 1；已有其他版本产物和目录保留，之后打包自动递增。过程日志在忽略的 `build/validation-1.1.0/`，产物核对在 `build/1.1.0/build1/ipa-verification.json`。包大小 953803 字节，SHA-256 `515a39d213451b06e21c551dd9b181ee2c5586ea452ba802204f706bbc977901`。源码及公共文档提交在 main，不 push。
 
 ## 2026-10-05 类型化亮度消息业务：源码交接
 
@@ -6,7 +26,7 @@
 
 用户要求必须使用新 SDK、暂停本机编译，移至其他环境尝试。因此本轮 **没有执行 Swift 编译、core checks、Swift Package XCTest、iPhoneOS 构建或 IPA 打包**。新增互斥、通知结算、首次启动与消息采样回归测试已提供，结果待新环境运行。源码审查及 Python 工程检查的范围仅是文件归属、工程结构、配置和边界；不能确认新 SDK 编译结果或实际系统通知行为。迁移步骤见 [BRIGHTNESS_MESSAGE.md](BRIGHTNESS_MESSAGE.md)。
 
-已有 build 18 / 19 及其他历史 IPA 保留。本节之后的 core、XCTest、编译和 IPA 成功记录均属于其标注的旧版本，不代表当前源码已经通过。
+已有 build 18 / 19 及其他历史 IPA 保留。本历史节之后的 core、XCTest、编译和 IPA 记录均属于其标注的旧版本；当前 1.1.0 结果见本页首节。
 
 本轮静态检查已通过：208 个工程对象、58 个文件及两个共享 Scheme，主 App / 扩展 / 核心测试归属正确；提供 68 个唯一 XCTest 方法但未执行。打包脚本语法、4 个临时目录中的版本 / build 编号保留场景和 `git diff --check` 通过；15 份既有 IPA 的 SHA-256 与回退前基线一致。结果保存在本地 `build/validation-darwin-brightness-20261005/source-validation.json`，不进入提交。
 

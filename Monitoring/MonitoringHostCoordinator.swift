@@ -1,8 +1,10 @@
 import Foundation
 
-/// App composition owns the choice of process. KeepAliveManager has no knowledge of this policy.
-/// VPN owns the listener while it connects/runs; otherwise exactly one in-app runtime owns it.
+/// Each path has a fixed process. A disconnected tunnel never creates an App sampler.
+/// ExclusiveMonitoringBusiness owns path selection; KeepAliveManager owns execution carriers.
 @MainActor final class MonitoringHostCoordinator: MonitoringClient {
+    enum Process { case packetTunnel, app }
+    let process: Process
     private let vpn: any MonitoringClient
     private let vpnState: () -> KeepAliveState
     private let configurationStore: any MonitorStore
@@ -13,28 +15,31 @@ import Foundation
     private let context: () -> [String: String]
     private var runtime: (any MonitoringRuntime)?
     private var reconcileTask: Task<Void, Error>?
-    private var vpnRequested = false
     private var appExecutionAllowed = true
     private var host = "none"
     var onHostChange: (() -> Void)?
 
-    init(vpn: any MonitoringClient, vpnState: @escaping () -> KeepAliveState,
+    init(process: Process, vpn: any MonitoringClient, vpnState: @escaping () -> KeepAliveState,
          configurationStore: any MonitorStore, localStore: any MonitorStore,
          makeRuntime: @escaping () throws -> any MonitoringRuntime,
          exportLocal: @escaping (MonitorLogStream) throws -> String,
          record: @escaping (String, [String: String]) -> Void = { _, _ in },
          context: @escaping () -> [String: String] = { [:] }) {
+        self.process = process
         self.vpn = vpn; self.vpnState = vpnState
         self.configurationStore = configurationStore; self.localStore = localStore
         self.makeRuntime = makeRuntime; self.exportLocal = exportLocal
         self.record = record; self.context = context
     }
 
-    var usesVPN: Bool {
-        vpnRequested || [.starting, .active, .reasserting, .stopping].contains(vpnState().phase)
+    var usesVPN: Bool { process == .packetTunnel }
+    /// Only a system-confirmed disconnected/invalid profile establishes no provider.
+    /// Starting, stopping, reasserting and unknown states still require a real drain reply.
+    var isWaitingForVPN: Bool {
+        usesVPN && [.unavailable, .stopped].contains(vpnState().phase)
     }
     var canMessage: Bool { usesVPN ? vpnState().phase.canMessage : runtime != nil }
-    var hostName: String { usesVPN ? "VPN 扩展" : "App 内监听" }
+    var hostName: String { usesVPN ? "Packet Tunnel" : "App 内监控" }
     /// In-process snapshot for diagnostics only; status queries remain read-only and
     /// do not synthesize heartbeat or poll timestamps.
     var localRuntimeSnapshot: RuntimeSnapshot? { runtime?.snapshot }
@@ -63,11 +68,9 @@ import Foundation
     }
 
     func prepareForVPNStart() async throws {
-        vpnRequested = true
         try await reconcile()
     }
     func finishVPNStartRequest() async throws {
-        vpnRequested = false
         try await reconcile()
     }
 
@@ -81,10 +84,12 @@ import Foundation
         }
         try configurationStore.saveConfiguration(disabled)
         try localStore.saveConfiguration(disabled)
+        try await persistConfigurationForNextStart(disabled)
 
         if let reconcileTask { try await reconcileTask.value }
 
         if usesVPN {
+            if isWaitingForVPN { return try inactiveVPNReply(configuration: disabled) }
             let initial = try await vpn.queryStatus()
             guard initial.success, let initialSnapshot = initial.snapshot else {
                 throw ProjectError.message("VPN 监听状态不可读：\(initial.message)")
@@ -174,6 +179,8 @@ import Foundation
     }
 
     func prepareForVPNStop() async throws -> MonitorReply {
+        guard usesVPN else { return try await queryStatus() }
+        if isWaitingForVPN { return try inactiveVPNReply() }
         var reply = try await vpn.prepareHostHandoff()
         let deadline = ProcessInfo.processInfo.systemUptime + 5
         while true {
@@ -218,68 +225,51 @@ import Foundation
     }
 
     func reconcile() async throws {
+        guard !usesVPN else {
+            publishHost("vpn")
+            return
+        }
         if let reconcileTask {
             try await reconcileTask.value
-            // The shared task can suspend while a notification commits. Reapply
-            // the latest app execution policy after it finishes, not its captured
-            // value from before the suspension.
             applyCurrentExecutionPolicy()
             return
         }
         let task = Task { @MainActor in
-            repeat {
-                let remote = self.usesVPN
-                if remote {
-                    if let current = self.runtime {
-                        // Wait for an already-issued notification to commit before changing process.
-                        await withCheckedContinuation { continuation in
-                            current.stop(reason: "host_handoff_to_vpn", finalPhase: .stopped) { continuation.resume() }
+            guard self.runtime == nil else { return }
+            let configuration = try self.configurationStore.configuration()
+            // start() can read immediately. Seed disabled before constructing an
+            // ineligible background runtime, then restore intent while sleeping.
+            var startupConfiguration = configuration
+            if !self.appExecutionAllowed { startupConfiguration.isEnabled = false }
+            var createdRuntime: (any MonitoringRuntime)?
+            do {
+                try self.localStore.saveConfiguration(startupConfiguration)
+                if let history = try self.configurationStore.history() { try self.mergeHistory(history) }
+                let current = try self.makeRuntime()
+                createdRuntime = current
+                try current.start()
+                if !self.appExecutionAllowed {
+                    current.sleep()
+                    if startupConfiguration != configuration {
+                        try self.localStore.saveConfiguration(configuration)
+                        let reply = current.reload(expectedRevision: configuration.revision)
+                        guard reply.success, reply.appliedRevision == configuration.revision else {
+                            throw ProjectError.message(reply.message)
                         }
-                        if let history = current.snapshot.history { try self.mergeHistory(history) }
-                        self.runtime = nil
                     }
-                    self.publishHost("vpn")
-                    self.log("monitor_host_selected", ["host": "vpn"])
-                } else if self.runtime == nil {
-                    let configuration = try self.configurationStore.configuration()
-                    // SwitchMonitor.start() samples immediately when enabled. Seed a
-                    // disabled config when background execution is unavailable, then
-                    // restore the saved config while sleeping so no background sample
-                    // slips through during runtime creation.
-                    var startupConfiguration = configuration
-                    if !self.appExecutionAllowed { startupConfiguration.isEnabled = false }
-                    var createdRuntime: (any MonitoringRuntime)?
-                    do {
-                        try self.localStore.saveConfiguration(startupConfiguration)
-                        if let history = try self.configurationStore.history() { try self.mergeHistory(history) }
-                        let current = try self.makeRuntime()
-                        createdRuntime = current
-                        try current.start()
-                        if !self.appExecutionAllowed {
-                            current.sleep()
-                            if startupConfiguration != configuration {
-                                try self.localStore.saveConfiguration(configuration)
-                                let reply = current.reload(expectedRevision: configuration.revision)
-                                guard reply.success, reply.appliedRevision == configuration.revision else {
-                                    throw ProjectError.message(reply.message)
-                                }
-                            }
-                        }
-                        self.runtime = current
-                    } catch {
-                        if let current = createdRuntime {
-                            await withCheckedContinuation { continuation in
-                                current.stop(reason: "host_start_failed", finalPhase: .failed) { continuation.resume() }
-                            }
-                        }
-                        try? self.localStore.saveConfiguration(configuration)
-                        throw error
-                    }
-                    self.publishHost("app")
-                    self.log("monitor_host_selected", ["host": "app"])
                 }
-                if remote == self.usesVPN { break }
-            } while !Task.isCancelled
+                self.runtime = current
+            } catch {
+                if let current = createdRuntime {
+                    await withCheckedContinuation { continuation in
+                        current.stop(reason: "host_start_failed", finalPhase: .failed) { continuation.resume() }
+                    }
+                }
+                try? self.localStore.saveConfiguration(configuration)
+                throw error
+            }
+            self.publishHost("app")
+            self.log("monitor_host_selected", ["host": "app"])
         }
         reconcileTask = task
         defer { reconcileTask = nil }
@@ -289,6 +279,7 @@ import Foundation
 
     func queryStatus() async throws -> MonitorReply {
         if usesVPN {
+            if isWaitingForVPN { return try inactiveVPNReply() }
             let reply = try await vpn.queryStatus()
             if let history = reply.snapshot?.history { try mergeHistory(history) }
             return reply
@@ -302,10 +293,18 @@ import Foundation
 
     func applyConfiguration(_ configuration: MonitorConfiguration) async throws -> MonitorReply {
         try localStore.saveConfiguration(configuration)
-        if usesVPN { return try await vpn.applyConfiguration(configuration) }
+        try await persistConfigurationForNextStart(configuration)
+        if usesVPN {
+            if isWaitingForVPN { return try inactiveVPNReply(configuration: configuration) }
+            return try await vpn.applyConfiguration(configuration)
+        }
         try await reconcile()
         guard let runtime else { throw MonitorChannelError.bridgeUnavailable("App 内监听未初始化。") }
         return runtime.reload(expectedRevision: configuration.revision)
+    }
+
+    func persistConfigurationForNextStart(_ configuration: MonitorConfiguration) async throws {
+        if usesVPN { try await vpn.persistConfigurationForNextStart(configuration) }
     }
 
     func diagnostics(stream: MonitorLogStream) async throws -> String {
@@ -324,6 +323,18 @@ import Foundation
             if let previous = try store.history(), previous.submittedAt >= history.submittedAt { continue }
             try store.saveHistory(history)
         }
+    }
+
+    /// A configuration acknowledgement while the carrier is absent, never a fabricated
+    /// provider heartbeat, sample or final notification result. Historical logs stay intact.
+    private func inactiveVPNReply(configuration: MonitorConfiguration? = nil) throws -> MonitorReply {
+        let configuration = try configuration ?? configurationStore.configuration()
+        let prior = try configurationStore.snapshot()
+        let snapshot = RuntimeSnapshot(instanceID: "packet-tunnel-inactive", phase: .stopped,
+            history: try configurationStore.history(), appliedConfiguration: configuration,
+            counters: prior?.counters ?? RuntimeCounters())
+        return MonitorReply(success: true, message: "Packet Tunnel 未连接，已保存配置并等待连接。",
+            appliedRevision: configuration.revision, snapshot: snapshot)
     }
     private func publishHost(_ value: String) {
         guard host != value else { return }
